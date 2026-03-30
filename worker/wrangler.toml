@@ -8,8 +8,8 @@ binding = "DB"
 database_name = "bethainy"
 database_id = "984ed5e0-5f65-44d0-b058-2fe97399166e"
 
-# Container configuration (object format for older wrangler)
-[containers]
+# Container configuration
+[[containers]]
 class_name = "BethainyContainer"
 image = "../container/Dockerfile"
 max_instances = 3
