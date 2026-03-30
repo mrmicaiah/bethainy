@@ -8,12 +8,12 @@ binding = "DB"
 database_name = "bethainy"
 database_id = "984ed5e0-5f65-44d0-b058-2fe97399166e"
 
-# Container configuration
-[[containers]]
+# Container configuration (object format for older wrangler)
+[containers]
 class_name = "BethainyContainer"
 image = "../container/Dockerfile"
 max_instances = 3
-instance_type = "basic"  # 1/4 vCPU, 1GB RAM
+instance_type = "basic"
 
 [[durable_objects.bindings]]
 name = "BETHAINY_CONTAINER"
