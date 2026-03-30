@@ -10,6 +10,7 @@ export interface Env {
   BETHAINY_CONTAINER: DurableObjectNamespace<BethainyContainer>;
   ANTHROPIC_API_KEY: string;
   CLAUDE_MODEL: string;
+  WORKER_URL: string;
 }
 
 // Container class - extends Cloudflare's Container
@@ -19,7 +20,8 @@ export class BethainyContainer extends Container {
   
   envVars = {
     ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY,
-    CLAUDE_MODEL: this.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514'
+    CLAUDE_MODEL: this.env.CLAUDE_MODEL || 'claude-sonnet-4-20250514',
+    WORKER_URL: this.env.WORKER_URL || 'https://bethainy.micaiah-tasks.workers.dev'
   };
   
   override onStart() {
