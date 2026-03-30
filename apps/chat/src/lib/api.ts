@@ -1,4 +1,4 @@
-const API_URL = 'https://bethainy-api.micaiah-tasks.workers.dev';
+const API_URL = 'https://bethainy.micaiah-tasks.workers.dev';
 
 class ApiClient {
   private token: string | null = null;
