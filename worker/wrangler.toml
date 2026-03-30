@@ -2,7 +2,7 @@ name = "bethainy"
 main = "src/index.ts"
 compatibility_date = "2026-01-20"
 
-# D1 Database
+# D1 Database (still used for user auth)
 [[d1_databases]]
 binding = "DB"
 database_name = "bethainy"
@@ -28,6 +28,8 @@ enabled = true
 
 [vars]
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
-WORKER_URL = "https://bethainy.micaiah-tasks.workers.dev"
+DATA_REPO = "mrmicaiah/bethainy-data"
 
-# Set these via: wrangler secret put ANTHROPIC_API_KEY
+# Set these via: 
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put GITHUB_TOKEN
