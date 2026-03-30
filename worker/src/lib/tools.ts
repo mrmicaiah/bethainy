@@ -2,6 +2,19 @@
 
 export function getTools() {
   return [
+    // Mode instruction tool - LOAD ON DEMAND
+    {
+      name: 'get_mode_instructions',
+      description: 'Load full instructions for a mode when you detect a trigger. Call this FIRST when entering a mode context (gym, eating, person, project, etc.)',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mode: { type: 'string', description: 'Mode name: Fitness, People, Daily, Projects, Money, Journal, Learning, Maintenance, Shopping, Faith' },
+        },
+        required: ['mode'],
+      },
+    },
+    
     // Track tools
     {
       name: 'get_tracks',
@@ -15,7 +28,7 @@ export function getTools() {
     },
     {
       name: 'get_track',
-      description: 'Get a specific track by ID',
+      description: 'Get a specific track by ID with full data',
       input_schema: {
         type: 'object',
         properties: {
@@ -148,6 +161,57 @@ export async function handleToolCall(
   input: any
 ): Promise<any> {
   switch (toolName) {
+    
+    // GET MODE INSTRUCTIONS - loads mode + related docs
+    case 'get_mode_instructions': {
+      const modeName = input.mode;
+      
+      // Get mode instructions
+      const mode = await db.prepare(
+        'SELECT * FROM modes WHERE user_id = ? AND name = ?'
+      ).bind(userId, modeName).first();
+      
+      if (!mode) {
+        return { error: `Mode not found: ${modeName}` };
+      }
+      
+      let result: any = {
+        mode: modeName,
+        instructions: (mode as any).instructions || 'No instructions set for this mode.',
+      };
+      
+      // Load related reference docs based on mode
+      if (modeName === 'Fitness') {
+        const workoutPlan = await db.prepare(
+          'SELECT content FROM system_docs WHERE user_id = ? AND id = ?'
+        ).bind(userId, 'workout-plan').first();
+        
+        const dietPlan = await db.prepare(
+          'SELECT content FROM system_docs WHERE user_id = ? AND id = ?'
+        ).bind(userId, 'diet-plan').first();
+        
+        if (workoutPlan) result.workoutPlan = (workoutPlan as any).content;
+        if (dietPlan) result.dietPlan = (dietPlan as any).content;
+        
+        // Also get the active fitness track
+        const fitnessTrack = await db.prepare(
+          `SELECT * FROM tracks WHERE user_id = ? AND mode_id LIKE '%_fitness' AND status = 'active' LIMIT 1`
+        ).bind(userId).first();
+        
+        if (fitnessTrack) {
+          result.track = {
+            id: (fitnessTrack as any).id,
+            name: (fitnessTrack as any).name,
+            plan: (fitnessTrack as any).plan ? JSON.parse((fitnessTrack as any).plan) : null,
+            progress: (fitnessTrack as any).progress ? JSON.parse((fitnessTrack as any).progress) : null,
+            preferences: (fitnessTrack as any).preferences ? JSON.parse((fitnessTrack as any).preferences) : null,
+          };
+        }
+      }
+      
+      return result;
+    }
+    
     // Track tools
     case 'get_tracks': {
       let query = 'SELECT * FROM tracks WHERE user_id = ?';
@@ -155,7 +219,7 @@ export async function handleToolCall(
       
       if (input.mode) {
         query += ' AND mode_id LIKE ?';
-        params.push(`%_${input.mode}`);
+        params.push(`%_${input.mode.toLowerCase()}`);
       }
       
       const result = await db.prepare(query).bind(...params).all();
@@ -166,12 +230,23 @@ export async function handleToolCall(
       const track = await db.prepare(
         'SELECT * FROM tracks WHERE id = ? AND user_id = ?'
       ).bind(input.id, userId).first();
-      return track || { error: 'Track not found' };
+      
+      if (!track) return { error: 'Track not found' };
+      
+      // Parse JSON fields
+      return {
+        ...(track as any),
+        plan: (track as any).plan ? JSON.parse((track as any).plan) : null,
+        progress: (track as any).progress ? JSON.parse((track as any).progress) : null,
+        profile: (track as any).profile ? JSON.parse((track as any).profile) : null,
+        situation: (track as any).situation ? JSON.parse((track as any).situation) : null,
+        preferences: (track as any).preferences ? JSON.parse((track as any).preferences) : null,
+      };
     }
     
     case 'create_track': {
-      const id = crypto.randomUUID();
-      const modeId = `${userId}_${input.mode}`;
+      const id = input.name.toLowerCase().replace(/\s+/g, '-');
+      const modeId = `${userId}_${input.mode.toLowerCase()}`;
       
       await db.prepare(
         `INSERT INTO tracks (id, user_id, mode_id, name, type, behavior, plan, profile, situation)
