@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { DataClient } from './data.js';
+import { GitHubClient } from './github.js';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -12,114 +12,52 @@ export interface Message {
   content: string;
 }
 
-// Tools bethainy can use
+// GitHub-based tools - Claude can read/write any file
 const tools: Anthropic.Tool[] = [
   {
-    name: 'add_daily_note',
-    description: 'Add a task or note to the daily notes bucket. Use for generic tasks that don\\'t belong to a specific track.',
+    name: 'read_file',
+    description: 'Read a file from the user\\'s data folder. Returns file content or null if not found.',
     input_schema: {
       type: 'object',
       properties: {
-        content: { type: 'string', description: 'The task or note content' },
-        type: { type: 'string', enum: ['task', 'note'], description: 'Whether this is a task or a note' },
-        context: { type: 'string', description: 'Optional context about why this was added' }
+        path: { 
+          type: 'string', 
+          description: 'File path relative to user folder (e.g., "daily/notes.json", "fitness/meals/2026-03-30.json", "people/tracks/sarah.json")' 
+        }
       },
-      required: ['content']
+      required: ['path']
     }
   },
   {
-    name: 'log_meal',
-    description: 'Log a meal that was eaten',
+    name: 'write_file',
+    description: 'Write/create a file in the user\\'s data folder. Creates directories as needed.',
     input_schema: {
       type: 'object',
       properties: {
-        date: { type: 'string', description: 'Date in YYYY-MM-DD format' },
-        meal_number: { type: 'number', description: 'Meal number (1-5)' },
-        foods: { type: 'array', items: { type: 'string' }, description: 'List of foods eaten' },
-        protein_g: { type: 'number', description: 'Estimated protein in grams' },
-        on_plan: { type: 'boolean', description: 'Whether this matches the diet plan' },
-        notes: { type: 'string', description: 'Optional notes' }
-      },
-      required: ['date', 'meal_number', 'foods']
-    }
-  },
-  {
-    name: 'log_workout',
-    description: 'Log a completed workout',
-    input_schema: {
-      type: 'object',
-      properties: {
-        date: { type: 'string', description: 'Date in YYYY-MM-DD format' },
-        day_type: { type: 'string', description: 'Push, Pull, or Legs' },
-        duration_minutes: { type: 'number', description: 'Workout duration in minutes' },
-        exercises: { 
-          type: 'array', 
-          items: { 
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              sets: { type: 'array', items: { type: 'object' } },
-              notes: { type: 'string' }
-            }
-          },
-          description: 'Exercises performed'
+        path: { 
+          type: 'string', 
+          description: 'File path relative to user folder' 
         },
-        notes: { type: 'string', description: 'Overall workout notes' }
+        content: { 
+          type: 'string', 
+          description: 'File content (JSON should be stringified)' 
+        }
       },
-      required: ['date', 'day_type']
+      required: ['path', 'content']
     }
   },
   {
-    name: 'add_maintenance_task',
-    description: 'Add a maintenance task for car, house, or appliance',
+    name: 'list_files',
+    description: 'List files in a directory in the user\\'s data folder.',
     input_schema: {
       type: 'object',
       properties: {
-        asset: { type: 'string', description: 'The asset (e.g., \"car\", \"house\", \"hvac\")' },
-        task: { type: 'string', description: 'The maintenance task' },
-        due_date: { type: 'string', description: 'When it\\'s due (YYYY-MM-DD or description like \"tomorrow\")' },
-        notes: { type: 'string', description: 'Additional notes' }
+        path: { 
+          type: 'string', 
+          description: 'Directory path relative to user folder (e.g., "fitness/workouts", "people/tracks")' 
+        }
       },
-      required: ['asset', 'task']
-    }
-  },
-  {
-    name: 'update_person',
-    description: 'Update information about a person',
-    input_schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'Person\\'s name' },
-        update_type: { type: 'string', enum: ['profile', 'situation', 'timeline', 'note'], description: 'What to update' },
-        content: { type: 'string', description: 'The information to add' }
-      },
-      required: ['name', 'update_type', 'content']
-    }
-  },
-  {
-    name: 'add_shopping_item',
-    description: 'Add an item to a shopping list',
-    input_schema: {
-      type: 'object',
-      properties: {
-        store: { type: 'string', description: 'Store name (e.g., \"Lowe\\'s\", \"Walmart\")' },
-        item: { type: 'string', description: 'Item to buy' }
-      },
-      required: ['store', 'item']
-    }
-  },
-  {
-    name: 'log_expense',
-    description: 'Log an expense',
-    input_schema: {
-      type: 'object',
-      properties: {
-        amount: { type: 'number', description: 'Amount spent' },
-        category: { type: 'string', description: 'Category or tracking bucket' },
-        description: { type: 'string', description: 'What it was for' },
-        date: { type: 'string', description: 'Date in YYYY-MM-DD format' }
-      },
-      required: ['amount', 'description']
+      required: ['path']
     }
   }
 ];
@@ -128,83 +66,32 @@ const tools: Anthropic.Tool[] = [
 async function executeTool(
   toolName: string,
   toolInput: any,
-  dataClient: DataClient,
-  today: string
+  github: GitHubClient
 ): Promise<string> {
-  console.log(`Executing tool: ${toolName}`, toolInput);
+  console.log(`Executing tool: ${toolName}`, JSON.stringify(toolInput).substring(0, 200));
   
   try {
     switch (toolName) {
-      case 'add_daily_note': {
-        await dataClient.addDailyNote({
-          type: toolInput.type || 'task',
-          content: toolInput.content,
-          context: toolInput.context
-        });
-        return `Added to daily notes: "${toolInput.content}"`;
+      case 'read_file': {
+        const file = await github.getFile(toolInput.path);
+        if (file) {
+          return file.content;
+        } else {
+          return `File not found: ${toolInput.path}`;
+        }
       }
       
-      case 'log_meal': {
-        await dataClient.logMeal(toolInput.date || today, {
-          meal_number: toolInput.meal_number,
-          foods: toolInput.foods,
-          protein_g: toolInput.protein_g || 0,
-          on_plan: toolInput.on_plan ? 1 : 0,
-          notes: toolInput.notes
-        });
-        return `Logged meal ${toolInput.meal_number}: ${toolInput.foods.join(', ')}`;
+      case 'write_file': {
+        await github.putFile(toolInput.path, toolInput.content);
+        return `Saved: ${toolInput.path}`;
       }
       
-      case 'log_workout': {
-        await dataClient.logWorkout(toolInput.date || today, {
-          day_type: toolInput.day_type,
-          duration_minutes: toolInput.duration_minutes,
-          exercises: toolInput.exercises || [],
-          notes: toolInput.notes
-        });
-        return `Logged ${toolInput.day_type} day workout`;
-      }
-      
-      case 'add_maintenance_task': {
-        // For now, add to daily notes with context
-        await dataClient.addDailyNote({
-          type: 'task',
-          content: `${toolInput.asset}: ${toolInput.task}${toolInput.due_date ? ` (due: ${toolInput.due_date})` : ''}`,
-          context: 'maintenance'
-        });
-        return `Added maintenance task: ${toolInput.task} for ${toolInput.asset}`;
-      }
-      
-      case 'update_person': {
-        // For now, add to daily notes - full people tracking later
-        await dataClient.addDailyNote({
-          type: 'note',
-          content: `${toolInput.name}: ${toolInput.content}`,
-          context: `people:${toolInput.update_type}`
-        });
-        return `Noted about ${toolInput.name}: ${toolInput.content}`;
-      }
-      
-      case 'add_shopping_item': {
-        await dataClient.addDailyNote({
-          type: 'task',
-          content: `Buy ${toolInput.item} from ${toolInput.store}`,
-          context: `shopping:${toolInput.store.toLowerCase()}`
-        });
-        return `Added to ${toolInput.store} list: ${toolInput.item}`;
-      }
-      
-      case 'log_expense': {
-        await dataClient.createEntry('money', {
-          type: 'expense',
-          date: toolInput.date || today,
-          data: {
-            amount: toolInput.amount,
-            category: toolInput.category,
-            description: toolInput.description
-          }
-        });
-        return `Logged expense: $${toolInput.amount} for ${toolInput.description}`;
+      case 'list_files': {
+        const files = await github.listDir(toolInput.path);
+        if (files.length === 0) {
+          return `No files in: ${toolInput.path}`;
+        }
+        return files.join('\\n');
       }
       
       default:
@@ -212,15 +99,14 @@ async function executeTool(
     }
   } catch (err: any) {
     console.error(`Tool error (${toolName}):`, err);
-    return `Failed to ${toolName}: ${err.message}`;
+    return `Error: ${err.message}`;
   }
 }
 
 export async function chat(
   systemPrompt: string,
   messages: Message[],
-  dataClient?: DataClient,
-  today?: string
+  github: GitHubClient
 ): Promise<string> {
   // First API call
   let response = await anthropic.messages.create({
@@ -240,7 +126,12 @@ export async function chat(
     content: m.content
   }));
   
-  while (response.stop_reason === 'tool_use') {
+  let iterations = 0;
+  const maxIterations = 10;
+  
+  while (response.stop_reason === 'tool_use' && iterations < maxIterations) {
+    iterations++;
+    
     // Find all tool use blocks
     const toolUseBlocks = response.content.filter(
       (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
@@ -256,13 +147,7 @@ export async function chat(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     
     for (const toolUse of toolUseBlocks) {
-      let result: string;
-      
-      if (dataClient && today) {
-        result = await executeTool(toolUse.name, toolUse.input, dataClient, today);
-      } else {
-        result = `Cannot execute ${toolUse.name}: data client not available`;
-      }
+      const result = await executeTool(toolUse.name, toolUse.input, github);
       
       toolResults.push({
         type: 'tool_result',
