@@ -154,21 +154,22 @@ export function Chat({ token, onLogout }: ChatProps) {
     setConversationId(null);
   };
 
-  const toggleKeyboard = () => {
-    if (inputFocused) {
-      inputRef.current?.blur();
-    } else {
-      inputRef.current?.focus();
-    }
+  const dismissKeyboard = () => {
+    inputRef.current?.blur();
+    setInputFocused(false);
   };
 
   const handleInputFocus = () => setInputFocused(true);
   const handleInputBlur = () => setInputFocused(false);
 
+  // Prevent blur when tapping toolbar buttons
+  const handleToolbarMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+  };
+
   if (containerState === "waking") {
     return (
       <div className="h-full flex flex-col">
-        {/* Ghost header for iOS */}
         <div className="h-12 flex-shrink-0"></div>
         <div className="flex-1 overflow-hidden">
           <WakeUpAnimation onAwake={handleWakeComplete} />
@@ -187,7 +188,7 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Ghost header - blends with background, gives iOS structure */}
+      {/* Ghost header for iOS */}
       <div className="h-12 flex-shrink-0"></div>
 
       {/* Messages */}
@@ -221,7 +222,11 @@ export function Chat({ token, onLogout }: ChatProps) {
       <div className="flex-shrink-0 p-4 border-t border-white/10 bg-surface">
         {/* Toolbar - shows when keyboard is focused */}
         {inputFocused && (
-          <div className="flex justify-between items-center mb-3 px-1">
+          <div 
+            className="flex justify-between items-center mb-3 px-1"
+            onMouseDown={handleToolbarMouseDown}
+            onTouchStart={handleToolbarMouseDown}
+          >
             <button 
               onClick={clearChat} 
               className="text-gray-400 hover:text-white transition-colors text-sm"
@@ -229,7 +234,7 @@ export function Chat({ token, onLogout }: ChatProps) {
               Clear
             </button>
             <button 
-              onClick={toggleKeyboard}
+              onClick={dismissKeyboard}
               className="text-gray-500 hover:text-gray-300 transition-colors"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
