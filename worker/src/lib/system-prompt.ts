@@ -6,24 +6,24 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
     'SELECT * FROM users WHERE id = ?'
   ).bind(userId).first();
   
-  // Get custom instructions (if any)
-  const customInstructions = await db.prepare(
-    'SELECT * FROM system_docs WHERE id = ? AND user_id = ?'
-  ).bind('instructions', userId).first();
+  // Get all system docs for this user
+  const systemDocs = await db.prepare(
+    'SELECT * FROM system_docs WHERE user_id = ?'
+  ).bind(userId).all();
   
-  // Get user's modes
+  // Get user's modes WITH instructions
   const modes = await db.prepare(
     'SELECT * FROM modes WHERE user_id = ?'
   ).bind(userId).all();
   
-  // Get active tracks with situations
+  // Get active tracks with full data
   const tracks = await db.prepare(
     `SELECT * FROM tracks WHERE user_id = ? AND status = 'active'`
   ).bind(userId).all();
   
   // Get recent entries for context
   const recentEntries = await db.prepare(
-    'SELECT * FROM entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 20'
+    'SELECT * FROM entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
   ).bind(userId).all();
   
   // Get open daily notes
@@ -32,86 +32,118 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
   ).bind(userId).all();
 
   const today = new Date().toISOString().split('T')[0];
-  const userName = user?.name || 'the user';
+  const userName = user?.name || 'friend';
   
-  // Base prompt
-  let prompt = `# bethainy — Life Assistant
+  // Parse system docs
+  const instructions = systemDocs.results.find((d: any) => d.id === 'instructions');
+  const modeSystem = systemDocs.results.find((d: any) => d.id === 'mode-system');
+  const creatingModes = systemDocs.results.find((d: any) => d.id === 'creating-modes');
+  const workoutPlan = systemDocs.results.find((d: any) => d.id === 'workout-plan');
+  const dietPlan = systemDocs.results.find((d: any) => d.id === 'diet-plan');
+  
+  // Build prompt
+  let prompt = `# bethainy
 
-You are a personal life assistant helping ${userName} manage their life.
-
-Today's date: ${today}
-
-`;
-
-  // Add custom instructions if they exist
-  if (customInstructions?.content) {
-    prompt += `## Custom Instructions
-
-${customInstructions.content}
+Today: ${today}
+User: ${userName}
 
 `;
-  } else {
-    // Default instructions
-    prompt += `## How You Work
 
-- **Modes are invisible** — The user just talks naturally. You manage state internally.
-- **Track as you go** — Capture information in the moment using tools.
-- **Take notes automatically** — When they state a preference, give context, correct something—save it.
-- **Auto-generate plans** — When a situation needs a plan, create a reasonable default.
-- **Daily is the catch-all** — Generic tasks go to daily notes until they have a home.
-
-## Behavior Types
-
-### Circuit Behavior
-You lead. User executes.
-- Present one step at a time
-- Capture everything automatically
-- Examples: Gym workout, shopping list, Bible reading, daily plan
-
-### Collaborative Behavior
-User leads. You help and capture.
-- Listen, ask questions, offer ideas
-- Capture only on signal ("write that down", "that's the plan", conversation wrap-up)
-- Examples: Project work, journaling, talking about people
-
-## Tone & Style
-
-- Be direct and practical
-- Don't over-explain
-- Keep responses concise
-- Push when slacking, celebrate real progress
-
-`;
+  // Core instructions
+  if (instructions?.content) {
+    prompt += instructions.content + '\n\n';
   }
 
-  // Add context
-  prompt += `## User's Modes
-${modes.results.map((m: any) => `- ${m.name} (${m.behavior})`).join('\n')}
+  // Mode system architecture
+  if (modeSystem?.content) {
+    prompt += `---\n\n## Mode System Reference\n\n${modeSystem.content}\n\n`;
+  }
 
-## Active Tracks
-${tracks.results.length > 0 ? tracks.results.map((t: any) => {
-  const situation = t.situation ? JSON.parse(t.situation) : null;
-  return `- ${t.name} (${t.mode_id.split('_').pop()})${situation?.current ? ` — ${situation.current}` : ''}`;
-}).join('\n') : 'No active tracks yet.'}
+  // Creating modes guide
+  if (creatingModes?.content) {
+    prompt += `---\n\n## Creating New Modes\n\n${creatingModes.content}\n\n`;
+  }
 
-## Open Tasks
-${dailyNotes.results.length > 0 ? dailyNotes.results.map((n: any) => `- ${n.task}`).join('\n') : 'No open tasks.'}
+  // All mode instructions
+  prompt += `---\n\n## Mode Instructions\n\n`;
+  for (const mode of modes.results as any[]) {
+    if (mode.instructions) {
+      prompt += `### ${mode.name}\n${mode.instructions}\n\n`;
+    }
+  }
 
-## Recent Activity
-${recentEntries.results.length > 0 ? recentEntries.results.slice(0, 5).map((e: any) => {
-  const data = e.data ? JSON.parse(e.data) : {};
-  return `- ${e.date}: ${e.type}${data.note ? ` — ${data.note}` : ''}`;
-}).join('\n') : 'No recent activity.'}
+  // Reference docs (workout plan, diet plan)
+  if (workoutPlan?.content || dietPlan?.content) {
+    prompt += `---\n\n## Reference Data\n\n`;
+    if (workoutPlan?.content) {
+      prompt += `### Workout Plan\n${workoutPlan.content}\n\n`;
+    }
+    if (dietPlan?.content) {
+      prompt += `### Diet Plan\n${dietPlan.content}\n\n`;
+    }
+  }
 
-## Tools Available
+  // Active tracks with their data
+  prompt += `---\n\n## Active Tracks\n\n`;
+  if (tracks.results.length > 0) {
+    for (const track of tracks.results as any[]) {
+      const modeName = track.mode_id.split('_').pop();
+      prompt += `### ${track.name} (${modeName})\n`;
+      
+      if (track.plan) {
+        prompt += `**Plan:** ${JSON.stringify(JSON.parse(track.plan))}\n`;
+      }
+      if (track.progress) {
+        prompt += `**Progress:** ${JSON.stringify(JSON.parse(track.progress))}\n`;
+      }
+      if (track.preferences) {
+        prompt += `**Preferences:** ${JSON.stringify(JSON.parse(track.preferences))}\n`;
+      }
+      if (track.situation) {
+        const situation = JSON.parse(track.situation);
+        prompt += `**Situation:** ${situation.current || 'none'}${situation.since ? ` (since ${situation.since})` : ''}\n`;
+      }
+      if (track.profile) {
+        prompt += `**Profile:** ${JSON.stringify(JSON.parse(track.profile))}\n`;
+      }
+      prompt += '\n';
+    }
+  } else {
+    prompt += 'No active tracks yet.\n\n';
+  }
 
-You have tools to read and write user data:
-- get_tracks, create_track, update_track
-- create_entry, get_entries
+  // Open tasks
+  if (dailyNotes.results.length > 0) {
+    prompt += `---\n\n## Open Tasks\n\n`;
+    for (const note of dailyNotes.results as any[]) {
+      prompt += `- ${note.task}\n`;
+    }
+    prompt += '\n';
+  }
+
+  // Recent activity
+  if (recentEntries.results.length > 0) {
+    prompt += `---\n\n## Recent Activity\n\n`;
+    for (const entry of recentEntries.results.slice(0, 5) as any[]) {
+      const data = entry.data ? JSON.parse(entry.data) : {};
+      prompt += `- ${entry.date}: ${entry.type}`;
+      if (data.day_type) prompt += ` (${data.day_type})`;
+      if (data.notes) prompt += ` — ${data.notes}`;
+      prompt += '\n';
+    }
+    prompt += '\n';
+  }
+
+  // Tools
+  prompt += `---\n\n## Tools
+
+Use these to read and write data:
+- get_tracks, get_track, create_track, update_track
+- create_entry, get_entries  
 - add_daily_note, complete_daily_note
 - get_daily_plan, update_daily_plan
 
-Use these tools to persist information. Don't just acknowledge—actually save it.
+**Don't just acknowledge — use tools to save data.**
 `;
 
   return prompt;
