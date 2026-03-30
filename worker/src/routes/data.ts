@@ -1,41 +1,26 @@
 import { Hono } from 'hono';
 import { Env } from '../index';
 
-export const dataRoutes = new Hono<{ Bindings: Env }>();
+export const dataRoutes = new Hono<{ Bindings: Env; Variables: { userId: string } }>();
 
-// Get all modes for user
-dataRoutes.get('/modes', async (c) => {
-  const userId = c.get('userId');
-  
-  const modes = await c.env.DB.prepare(
-    'SELECT * FROM modes WHERE user_id = ?'
-  ).bind(userId).all();
-  
-  return c.json(modes.results);
-});
+// ============ TRACKS ============
 
-// Get all tracks for user (optionally filtered by mode)
-dataRoutes.get('/tracks', async (c) => {
+// Get all tracks for a mode
+dataRoutes.get('/tracks/:mode', async (c) => {
   const userId = c.get('userId');
-  const modeId = c.req.query('mode');
+  const mode = c.req.param('mode');
   
-  let query = 'SELECT * FROM tracks WHERE user_id = ?';
-  const params: any[] = [userId];
-  
-  if (modeId) {
-    query += ' AND mode_id = ?';
-    params.push(modeId);
-  }
-  
-  const tracks = await c.env.DB.prepare(query).bind(...params).all();
+  const tracks = await c.env.DB.prepare(
+    'SELECT * FROM tracks WHERE user_id = ? AND mode = ? AND status != ?'
+  ).bind(userId, mode, 'deleted').all();
   
   return c.json(tracks.results);
 });
 
-// Get single track
-dataRoutes.get('/tracks/:id', async (c) => {
+// Get a specific track
+dataRoutes.get('/tracks/:mode/:trackId', async (c) => {
   const userId = c.get('userId');
-  const trackId = c.req.param('id');
+  const trackId = c.req.param('trackId');
   
   const track = await c.env.DB.prepare(
     'SELECT * FROM tracks WHERE id = ? AND user_id = ?'
@@ -48,45 +33,183 @@ dataRoutes.get('/tracks/:id', async (c) => {
   return c.json(track);
 });
 
-// Get entries (filtered by type, track, date range)
-dataRoutes.get('/entries', async (c) => {
+// Create or update a track
+dataRoutes.put('/tracks/:mode/:trackId', async (c) => {
   const userId = c.get('userId');
-  const type = c.req.query('type');
-  const trackId = c.req.query('track');
-  const startDate = c.req.query('start');
-  const endDate = c.req.query('end');
-  const limit = parseInt(c.req.query('limit') || '50');
+  const mode = c.req.param('mode');
+  const trackId = c.req.param('trackId');
+  const data = await c.req.json();
   
-  let query = 'SELECT * FROM entries WHERE user_id = ?';
-  const params: any[] = [userId];
+  // Check if exists
+  const existing = await c.env.DB.prepare(
+    'SELECT id FROM tracks WHERE id = ? AND user_id = ?'
+  ).bind(trackId, userId).first();
+  
+  if (existing) {
+    // Update
+    await c.env.DB.prepare(`
+      UPDATE tracks SET
+        name = ?, type = ?, behavior = ?, status = ?,
+        plan = ?, progress = ?, profile = ?, situation = ?,
+        preferences = ?, current_list = ?, tasks = ?, schedule = ?,
+        insights = ?, resources = ?, timeline = ?, notes = ?,
+        updated_at = datetime('now')
+      WHERE id = ? AND user_id = ?
+    `).bind(
+      data.name, data.type, data.behavior, data.status || 'active',
+      JSON.stringify(data.plan), JSON.stringify(data.progress),
+      JSON.stringify(data.profile), JSON.stringify(data.situation),
+      JSON.stringify(data.preferences), JSON.stringify(data.current_list),
+      JSON.stringify(data.tasks), JSON.stringify(data.schedule),
+      JSON.stringify(data.insights), JSON.stringify(data.resources),
+      JSON.stringify(data.timeline), JSON.stringify(data.notes),
+      trackId, userId
+    ).run();
+  } else {
+    // Insert
+    await c.env.DB.prepare(`
+      INSERT INTO tracks (
+        id, user_id, mode, name, type, behavior, status,
+        plan, progress, profile, situation, preferences,
+        current_list, tasks, schedule, insights, resources, timeline, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      trackId, userId, mode,
+      data.name, data.type, data.behavior || 'collaborative', data.status || 'active',
+      JSON.stringify(data.plan), JSON.stringify(data.progress),
+      JSON.stringify(data.profile), JSON.stringify(data.situation),
+      JSON.stringify(data.preferences), JSON.stringify(data.current_list),
+      JSON.stringify(data.tasks), JSON.stringify(data.schedule),
+      JSON.stringify(data.insights), JSON.stringify(data.resources),
+      JSON.stringify(data.timeline), JSON.stringify(data.notes)
+    ).run();
+  }
+  
+  return c.json({ success: true, id: trackId });
+});
+
+// ============ ENTRIES ============
+
+// Get entries for a date range
+dataRoutes.get('/entries/:mode', async (c) => {
+  const userId = c.get('userId');
+  const mode = c.req.param('mode');
+  const type = c.req.query('type');
+  const startDate = c.req.query('start') || '2000-01-01';
+  const endDate = c.req.query('end') || '2100-01-01';
+  
+  let query = 'SELECT * FROM entries WHERE user_id = ? AND mode = ? AND date BETWEEN ? AND ?';
+  const params: any[] = [userId, mode, startDate, endDate];
   
   if (type) {
     query += ' AND type = ?';
     params.push(type);
   }
-  if (trackId) {
-    query += ' AND track_id = ?';
-    params.push(trackId);
-  }
-  if (startDate) {
-    query += ' AND date >= ?';
-    params.push(startDate);
-  }
-  if (endDate) {
-    query += ' AND date <= ?';
-    params.push(endDate);
-  }
   
-  query += ' ORDER BY date DESC, created_at DESC LIMIT ?';
-  params.push(limit);
+  query += ' ORDER BY date DESC, created_at DESC';
   
   const entries = await c.env.DB.prepare(query).bind(...params).all();
   
   return c.json(entries.results);
 });
 
-// Get daily plan
-dataRoutes.get('/daily/:date', async (c) => {
+// Get entries for a specific date
+dataRoutes.get('/entries/:mode/:date', async (c) => {
+  const userId = c.get('userId');
+  const mode = c.req.param('mode');
+  const date = c.req.param('date');
+  const type = c.req.query('type');
+  
+  let query = 'SELECT * FROM entries WHERE user_id = ? AND mode = ? AND date = ?';
+  const params: any[] = [userId, mode, date];
+  
+  if (type) {
+    query += ' AND type = ?';
+    params.push(type);
+  }
+  
+  query += ' ORDER BY created_at ASC';
+  
+  const entries = await c.env.DB.prepare(query).bind(...params).all();
+  
+  return c.json(entries.results);
+});
+
+// Create an entry
+dataRoutes.post('/entries/:mode', async (c) => {
+  const userId = c.get('userId');
+  const mode = c.req.param('mode');
+  const { type, date, data, track_id } = await c.req.json();
+  
+  const result = await c.env.DB.prepare(`
+    INSERT INTO entries (user_id, mode, type, track_id, date, data)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(userId, mode, type, track_id || null, date, JSON.stringify(data)).run();
+  
+  return c.json({ success: true, id: result.meta.last_row_id });
+});
+
+// Update an entry
+dataRoutes.put('/entries/:id', async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const { data } = await c.req.json();
+  
+  await c.env.DB.prepare(`
+    UPDATE entries SET data = ? WHERE id = ? AND user_id = ?
+  `).bind(JSON.stringify(data), id, userId).run();
+  
+  return c.json({ success: true });
+});
+
+// ============ DAILY NOTES ============
+
+// Get daily notes
+dataRoutes.get('/daily/notes', async (c) => {
+  const userId = c.get('userId');
+  const status = c.req.query('status') || 'open';
+  
+  const notes = await c.env.DB.prepare(
+    'SELECT * FROM daily_notes WHERE user_id = ? AND status = ? ORDER BY created_at DESC'
+  ).bind(userId, status).all();
+  
+  return c.json(notes.results);
+});
+
+// Add a daily note
+dataRoutes.post('/daily/notes', async (c) => {
+  const userId = c.get('userId');
+  const { type, content, context } = await c.req.json();
+  
+  const result = await c.env.DB.prepare(`
+    INSERT INTO daily_notes (user_id, type, content, context)
+    VALUES (?, ?, ?, ?)
+  `).bind(userId, type || 'task', content, context || null).run();
+  
+  return c.json({ success: true, id: result.meta.last_row_id });
+});
+
+// Update a daily note
+dataRoutes.put('/daily/notes/:id', async (c) => {
+  const userId = c.get('userId');
+  const id = c.req.param('id');
+  const { status, moved_to } = await c.req.json();
+  
+  await c.env.DB.prepare(`
+    UPDATE daily_notes SET 
+      status = ?,
+      moved_to = ?,
+      completed_at = CASE WHEN ? = 'done' THEN datetime('now') ELSE completed_at END
+    WHERE id = ? AND user_id = ?
+  `).bind(status, moved_to || null, status, id, userId).run();
+  
+  return c.json({ success: true });
+});
+
+// ============ DAILY PLANS ============
+
+// Get today's plan (or a specific date)
+dataRoutes.get('/daily/plan/:date', async (c) => {
   const userId = c.get('userId');
   const date = c.req.param('date');
   
@@ -94,88 +217,59 @@ dataRoutes.get('/daily/:date', async (c) => {
     'SELECT * FROM daily_plans WHERE user_id = ? AND date = ?'
   ).bind(userId, date).first();
   
-  const notes = await c.env.DB.prepare(
-    'SELECT * FROM daily_notes WHERE user_id = ? AND status = "open" ORDER BY added_at DESC'
-  ).bind(userId).all();
-  
-  return c.json({
-    plan: plan || null,
-    notes: notes.results,
-  });
+  return c.json(plan || { date, items: [], completed: [] });
 });
 
-// News feed - what needs attention
-dataRoutes.get('/feed', async (c) => {
+// Create/update daily plan
+dataRoutes.put('/daily/plan/:date', async (c) => {
   const userId = c.get('userId');
-  const today = new Date().toISOString().split('T')[0];
+  const date = c.req.param('date');
+  const { items, completed, reflection } = await c.req.json();
   
-  // Open tasks
-  const tasks = await c.env.DB.prepare(
-    'SELECT * FROM daily_notes WHERE user_id = ? AND status = "open" ORDER BY added_at DESC LIMIT 10'
-  ).bind(userId).all();
+  await c.env.DB.prepare(`
+    INSERT INTO daily_plans (user_id, date, items, completed, reflection)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT (user_id, date) DO UPDATE SET
+      items = excluded.items,
+      completed = excluded.completed,
+      reflection = excluded.reflection
+  `).bind(
+    userId, date,
+    JSON.stringify(items),
+    JSON.stringify(completed),
+    reflection || null
+  ).run();
   
-  // People needing check-in (situation is active)
-  const people = await c.env.DB.prepare(
-    `SELECT * FROM tracks WHERE user_id = ? AND mode_id LIKE '%_people' 
-     AND json_extract(situation, '$.current') IS NOT NULL`
-  ).bind(userId).all();
-  
-  // Recent entries
-  const recent = await c.env.DB.prepare(
-    'SELECT * FROM entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
-  ).bind(userId).all();
-  
-  return c.json({
-    tasks: tasks.results,
-    people: people.results,
-    recent: recent.results,
-  });
+  return c.json({ success: true });
 });
 
-// ============ INSTRUCTIONS ENDPOINTS ============
+// ============ USER SETTINGS ============
 
-// Get current instructions
-dataRoutes.get('/instructions', async (c) => {
+// Get a setting
+dataRoutes.get('/settings/:key', async (c) => {
   const userId = c.get('userId');
+  const key = c.req.param('key');
   
-  const doc = await c.env.DB.prepare(
-    'SELECT * FROM system_docs WHERE id = ? AND user_id = ?'
-  ).bind('instructions', userId).first();
+  const setting = await c.env.DB.prepare(
+    'SELECT value FROM user_settings WHERE user_id = ? AND key = ?'
+  ).bind(userId, key).first();
   
-  return c.json({
-    content: doc?.content || null,
-    updated_at: doc?.updated_at || null,
-  });
+  return c.json(setting ? JSON.parse(setting.value as string) : null);
 });
 
-// Update instructions
-dataRoutes.put('/instructions', async (c) => {
+// Set a setting
+dataRoutes.put('/settings/:key', async (c) => {
   const userId = c.get('userId');
-  const { content } = await c.req.json();
+  const key = c.req.param('key');
+  const value = await c.req.json();
   
-  if (typeof content !== 'string') {
-    return c.json({ error: 'Content must be a string' }, 400);
-  }
+  await c.env.DB.prepare(`
+    INSERT INTO user_settings (user_id, key, value)
+    VALUES (?, ?, ?)
+    ON CONFLICT (user_id, key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = datetime('now')
+  `).bind(userId, key, JSON.stringify(value)).run();
   
-  // Upsert instructions
-  await c.env.DB.prepare(
-    `INSERT INTO system_docs (id, user_id, content, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET
-       content = excluded.content,
-       updated_at = excluded.updated_at`
-  ).bind('instructions', userId, content).run();
-  
-  return c.json({ success: true, updated: true });
-});
-
-// Delete instructions (revert to defaults)
-dataRoutes.delete('/instructions', async (c) => {
-  const userId = c.get('userId');
-  
-  await c.env.DB.prepare(
-    'DELETE FROM system_docs WHERE id = ? AND user_id = ?'
-  ).bind('instructions', userId).run();
-  
-  return c.json({ success: true, deleted: true });
+  return c.json({ success: true });
 });

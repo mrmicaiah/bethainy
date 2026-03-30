@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { Container, getContainer } from '@cloudflare/containers';
 import { auth } from './middleware/auth';
 import { userRoutes } from './routes/users';
+import { dataRoutes } from './routes/data';
 
 export interface Env {
   DB: D1Database;
@@ -39,7 +40,7 @@ app.use('/*', cors({
 }));
 
 // Health check
-app.get('/', (c) => c.json({ status: 'ok', app: 'bethainy-gateway' }));
+app.get('/', (c) => c.json({ status: 'ok', app: 'bethainy' }));
 
 // Public routes
 app.route('/users', userRoutes);
@@ -56,20 +57,32 @@ app.get('/wake', async (c) => {
   }
 });
 
-// Protected chat route
-app.post('/chat/message', auth, async (c) => {
+// Protected routes
+app.use('/chat/*', auth);
+app.use('/data/*', auth);
+
+// Data routes (D1 access)
+app.route('/data', dataRoutes);
+
+// Chat route - forwards to container with user context
+app.post('/chat/message', async (c) => {
   try {
     const body = await c.req.json();
     const userId = c.get('userId');
+    const token = c.req.header('Authorization')?.replace('Bearer ', '');
     
-    // Get the container (same instance for all users for now)
+    // Get the container
     const container = getContainer(c.env.BETHAINY_CONTAINER);
     
-    // Forward request to container
+    // Forward request to container with auth token for data access
     const response = await container.fetch(
       new Request('http://container/message', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Id': userId,
+          'X-Auth-Token': token || ''
+        },
         body: JSON.stringify({
           ...body,
           userId
