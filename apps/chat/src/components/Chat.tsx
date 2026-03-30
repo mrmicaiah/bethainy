@@ -150,7 +150,7 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     }
   };
 
-  const startNewChat = () => {
+  const clearChat = () => {
     setMessages([]);
     setConversationId(null);
   };
@@ -158,10 +158,8 @@ export function Chat({ user, token, onLogout }: ChatProps) {
   const toggleKeyboard = () => {
     if (inputFocused) {
       inputRef.current?.blur();
-      setInputFocused(false);
     } else {
       inputRef.current?.focus();
-      setInputFocused(true);
     }
   };
 
@@ -170,14 +168,7 @@ export function Chat({ user, token, onLogout }: ChatProps) {
 
   if (containerState === "waking") {
     return (
-      <div className="fixed inset-0 flex flex-col">
-        <header className="h-14 flex-shrink-0 flex items-center justify-between px-4 border-b border-white/10 bg-surface">
-          <div className="w-12" />
-          <h1 className="font-semibold">bethainy</h1>
-          <button onClick={onLogout} className="text-gray-400 hover:text-white transition-colors text-sm">
-            Logout
-          </button>
-        </header>
+      <div className="chat-container">
         <div className="flex-1 overflow-hidden">
           <WakeUpAnimation onAwake={handleWakeComplete} />
         </div>
@@ -187,30 +178,21 @@ export function Chat({ user, token, onLogout }: ChatProps) {
 
   if (containerState === "checking") {
     return (
-      <div className="fixed inset-0 flex items-center justify-center">
+      <div className="chat-container items-center justify-center">
         <div className="text-gray-400">Checking in...</div>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col">
-      {/* Fixed Header */}
-      <header className="h-14 flex-shrink-0 flex items-center justify-between px-4 border-b border-white/10 bg-surface">
-        <button onClick={startNewChat} className="text-gray-400 hover:text-white transition-colors">
-          + New
-        </button>
-        <h1 className="font-semibold">bethainy</h1>
-        <button onClick={onLogout} className="text-gray-400 hover:text-white transition-colors text-sm">
-          Logout
-        </button>
-      </header>
-
+    <div className="chat-container">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4">
+      <div className="chat-messages hide-scrollbar space-y-4">
         {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-gray-500">Hey{user.name ? " " + user.name : ""}. What's up?</p>
+          <div className="flex flex-col items-center justify-center pt-32">
+            <div className="w-16 h-px bg-white/20 mb-6"></div>
+            <p className="text-gray-400 text-center text-lg">Hi, I'm bethainy</p>
+            <p className="text-gray-500 text-center text-sm mt-1">Your intuitive assistant for life</p>
           </div>
         ) : (
           messages.map((msg, i) => (
@@ -231,20 +213,35 @@ export function Chat({ user, token, onLogout }: ChatProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Fixed Input */}
-      <div className="flex-shrink-0 p-4 border-t border-white/10 bg-surface">
-        <div className="flex items-end gap-2 bg-surface-light rounded-2xl px-4 py-2">
-          <button onClick={toggleKeyboard} className="text-gray-400 hover:text-white transition-colors flex-shrink-0 pb-0.5" aria-label={inputFocused ? "Hide keyboard" : "Show keyboard"}>
-            {inputFocused ? (
+      {/* Input Area */}
+      <div className="chat-input-area">
+        {/* Toolbar - shows when keyboard is focused */}
+        {inputFocused && (
+          <div className="flex justify-between items-center mb-3 px-1">
+            <button 
+              onClick={clearChat} 
+              className="text-gray-400 hover:text-white transition-colors text-sm"
+            >
+              Clear
+            </button>
+            <button 
+              onClick={toggleKeyboard}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                 <path fillRule="evenodd" d="M12.53 16.28a.75.75 0 0 1-1.06 0l-7.5-7.5a.75.75 0 0 1 1.06-1.06L12 14.69l6.97-6.97a.75.75 0 1 1 1.06 1.06l-7.5 7.5Z" clipRule="evenodd" />
               </svg>
-            ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M2.25 5.25a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3v10.5a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3V5.25Zm3.75 1.5a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H6Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H9Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H12Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H15Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H18ZM6 10.5a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H6Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H9Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H12Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H15Zm3 0a.75.75 0 0 0 0 1.5h.75a.75.75 0 0 0 0-1.5H18ZM6.75 14.25a.75.75 0 0 0-.75.75v.75c0 .414.336.75.75.75h10.5a.75.75 0 0 0 .75-.75V15a.75.75 0 0 0-.75-.75H6.75Z" clipRule="evenodd" />
-              </svg>
-            )}
-          </button>
+            </button>
+            <button 
+              onClick={onLogout} 
+              className="text-gray-400 hover:text-white transition-colors text-sm"
+            >
+              Logout
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-end gap-2 bg-surface-light rounded-2xl px-4 py-2">
           <textarea
             ref={inputRef}
             value={input}
