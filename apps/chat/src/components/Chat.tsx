@@ -9,14 +9,13 @@ interface Message {
 }
 
 interface ChatProps {
-  user: { id: string; email: string; name: string | null };
   token: string;
   onLogout: () => void;
 }
 
 type ContainerState = "checking" | "waking" | "awake";
 
-export function Chat({ user, token, onLogout }: ChatProps) {
+export function Chat({ token, onLogout }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
