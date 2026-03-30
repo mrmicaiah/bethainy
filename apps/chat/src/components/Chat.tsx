@@ -82,11 +82,17 @@ export function Chat({ user, token, onLogout }: ChatProps) {
 
     const userMessage = input.trim();
     setInput('');
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    
+    // Add user message to display immediately
+    const newUserMsg: Message = { role: 'user', content: userMessage };
+    setMessages((prev) => [...prev, newUserMsg]);
     setLoading(true);
 
     try {
-      const response = await api.sendMessage(userMessage, messages, conversationId || undefined);
+      // Send FULL history including the new user message
+      const fullHistory = [...messages, newUserMsg];
+      const response = await api.sendMessage(userMessage, fullHistory, conversationId || undefined);
+      
       if (response.conversationId) {
         setConversationId(response.conversationId);
       }
