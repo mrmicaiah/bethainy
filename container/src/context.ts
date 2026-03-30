@@ -70,7 +70,7 @@ export function detectMode(message: string, context: Context): string | null {
   return null;
 }
 
-export function buildSystemPrompt(mode: string | null, context: Context): string {
+export function buildSystemPrompt(mode: string | null, context: Context, timezone?: string): string {
   let prompt = context.instructions + '\n\n';
   prompt += '---\n\n';
   prompt += context.modeSystem + '\n\n';
@@ -92,17 +92,27 @@ export function buildSystemPrompt(mode: string | null, context: Context): string
     }
   }
   
-  // Add current date/time
+  // Add current date/time in user's timezone
+  const tz = timezone || 'America/Chicago'; // Default to Central Time
   const now = new Date();
-  prompt += '---\n\n';
-  prompt += `Current date and time: ${now.toLocaleDateString('en-US', { 
+  
+  const dateStr = now.toLocaleDateString('en-US', { 
+    timeZone: tz,
     weekday: 'long', 
     year: 'numeric', 
     month: 'long', 
-    day: 'numeric',
+    day: 'numeric'
+  });
+  
+  const timeStr = now.toLocaleTimeString('en-US', {
+    timeZone: tz,
     hour: 'numeric',
-    minute: '2-digit'
-  })}\n`;
+    minute: '2-digit',
+    hour12: true
+  });
+  
+  prompt += '---\n\n';
+  prompt += `Current date and time: ${dateStr} at ${timeStr} (${tz})\n`;
   
   return prompt;
 }
