@@ -1,164 +1,144 @@
-import { serve } from '@hono/node-server';
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { loadContext, buildSystemPrompt, detectMode, type Context } from './context.js';
-import { chat } from './claude.js';
-import { GitHubClient } from './github.js';
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { loadContext, buildSystemPrompt, detectMode, type Context } from "./context.js";
+import { chat } from "./claude.js";
+import { GitHubClient } from "./github.js";
 
 const app = new Hono();
 
-// User's timezone
-const USER_TIMEZONE = 'America/Chicago';
+const USER_TIMEZONE = "America/Chicago";
 
-// Get date string in user's timezone
 function getLocalDate(offsetDays: number = 0): string {
   const now = new Date();
-  const localDate = new Date(now.toLocaleString('en-US', { timeZone: USER_TIMEZONE }));
+  const localDate = new Date(now.toLocaleString("en-US", { timeZone: USER_TIMEZONE }));
   localDate.setDate(localDate.getDate() + offsetDays);
-  return localDate.toISOString().split('T')[0];
+  return localDate.toISOString().split("T")[0];
 }
 
-// Load all mode files at startup
-console.log('');
-console.log('========================================');
-console.log('bethainy container starting...');
-console.log('========================================');
-console.log('');
+console.log("");
+console.log("========================================");
+console.log("bethainy container starting...");
+console.log("========================================");
+console.log("");
 
-console.log('Loading mode context...');
+console.log("Loading mode context...");
 let context: Context;
 
 try {
   context = await loadContext();
-  console.log('Context loaded successfully');
-  console.log('  Modes available:', Object.keys(context.modes).join(', '));
+  console.log("Context loaded successfully");
+  console.log("  Modes available:", Object.keys(context.modes).join(", "));
 } catch (err) {
-  console.error('Failed to load context:', err);
+  console.error("Failed to load context:", err);
   process.exit(1);
 }
 
-// CORS
-app.use('/*', cors({ origin: '*' }));
+app.use("/*", cors({ origin: "*" }));
 
-// Health check
-app.get('/', (c) => {
+app.get("/", (c) => {
   return c.json({ 
-    status: 'awake', 
+    status: "awake", 
     modes: Object.keys(context.modes),
     uptime: process.uptime()
   });
 });
 
-// Wake check
-app.get('/wake', (c) => {
+app.get("/wake", (c) => {
   return c.json({ 
-    status: 'ready', 
+    status: "ready", 
     timestamp: Date.now(),
     uptime: process.uptime()
   });
 });
 
-// Chat endpoint
-app.post('/message', async (c) => {
+app.post("/message", async (c) => {
   const startTime = Date.now();
   
   try {
     const body = await c.req.json();
     const { message, conversationHistory = [] } = body;
     
-    const userId = c.req.header('X-User-Id') || body.userId;
+    const userId = c.req.header("X-User-Id") || body.userId;
     
-    console.log('');
-    console.log('--- New message ---');
-    console.log('User:', userId || 'unknown');
-    console.log('Message:', message.substring(0, 100));
+    console.log("");
+    console.log("--- New message ---");
+    console.log("User:", userId || "unknown");
+    console.log("Message:", message.substring(0, 100));
     
-    // Create GitHub client for this user
     const github = new GitHubClient(userId);
     
-    // Check if user exists, initialize if not
     const userExists = await github.userExists();
     if (!userExists) {
-      console.log('New user, initializing folder...');
+      console.log("New user, initializing folder...");
       await github.initializeUser();
     }
     
-    // Detect mode
     const activeMode = detectMode(message, context);
-    console.log('Detected mode:', activeMode || 'general');
+    console.log("Detected mode:", activeMode || "general");
     
-    // Get dates
     const today = getLocalDate(0);
     const yesterday = getLocalDate(-1);
     
-    // Load key user data for context
-    let userDataContext = '';
+    let userDataContext = "";
     
     try {
-      // Daily notes (always relevant)
       const dailyNotes = await github.getDailyNotes();
       if (dailyNotes.tasks && dailyNotes.tasks.length > 0) {
-        userDataContext += '\n\n## Daily Tasks\n';
+        userDataContext += "\n\n## Daily Tasks\n";
         for (const task of dailyNotes.tasks) {
-          const taskText = typeof task === 'string' ? task : task.content || task.task;
-          userDataContext += '- ' + taskText + '\n';
+          const taskText = typeof task === "string" ? task : task.content || task.task;
+          userDataContext += "- " + taskText + "\n";
         }
       }
       
-      // Diet and workout plans (if fitness mode)
-      if (activeMode === 'fitness') {
+      if (activeMode === "fitness") {
         const dietPlan = await github.getDietPlan();
         if (dietPlan && dietPlan.length > 50) {
-          userDataContext += '\n\n## Diet Plan\n' + dietPlan + '\n';
+          userDataContext += "\n\n## Diet Plan\n" + dietPlan + "\n";
         }
         
         const workoutPlan = await github.getWorkoutPlan();
         if (workoutPlan && workoutPlan.length > 50) {
-          userDataContext += '\n\n## Workout Plan\n' + workoutPlan + '\n';
+          userDataContext += "\n\n## Workout Plan\n" + workoutPlan + "\n";
         }
         
-        // Today's meals
         const todayMeals = await github.getMeals(today);
         if (todayMeals) {
-          userDataContext += '\n\n## Today\'s Meals (' + today + ')\n';
-          userDataContext += JSON.stringify(todayMeals, null, 2) + '\n';
+          userDataContext += "\n\n## Todays Meals (" + today + ")\n";
+          userDataContext += JSON.stringify(todayMeals, null, 2) + "\n";
         }
         
-        // Yesterday's meals
         const yesterdayMeals = await github.getMeals(yesterday);
         if (yesterdayMeals) {
-          userDataContext += '\n\n## Yesterday\'s Meals (' + yesterday + ')\n';
-          userDataContext += JSON.stringify(yesterdayMeals, null, 2) + '\n';
+          userDataContext += "\n\n## Yesterdays Meals (" + yesterday + ")\n";
+          userDataContext += JSON.stringify(yesterdayMeals, null, 2) + "\n";
         }
         
-        // Recent body comp
         const bodyComp = await github.getBodyComposition(today) || await github.getBodyComposition(yesterday);
         if (bodyComp) {
-          userDataContext += '\n\n## Recent Body Composition\n';
-          userDataContext += JSON.stringify(bodyComp, null, 2) + '\n';
+          userDataContext += "\n\n## Recent Body Composition\n";
+          userDataContext += JSON.stringify(bodyComp, null, 2) + "\n";
         }
       }
       
     } catch (err) {
-      console.error('Error loading user data:', err);
+      console.error("Error loading user data:", err);
     }
     
-    // Build system prompt
     const systemPrompt = buildSystemPrompt(activeMode, context, USER_TIMEZONE) + userDataContext;
-    console.log('System prompt length:', systemPrompt.length, 'chars');
+    console.log("System prompt length:", systemPrompt.length, "chars");
     
-    // Prepare messages
     const messages = [
       ...conversationHistory,
-      { role: 'user' as const, content: message }
+      { role: "user" as const, content: message }
     ];
     
-    // Call Claude with GitHub client for tool execution
-    console.log('Calling Claude...');
+    console.log("Calling Claude...");
     const response = await chat(systemPrompt, messages, github);
     
     const duration = Date.now() - startTime;
-    console.log('Response in', duration, 'ms');
+    console.log("Response in", duration, "ms");
     
     return c.json({
       message: response,
@@ -167,18 +147,18 @@ app.post('/message', async (c) => {
     });
   } catch (err) {
     const error = err as Error;
-    console.error('Chat error:', error);
+    console.error("Chat error:", error);
     return c.json({ error: error.message }, 500);
   }
 });
 
-const port = parseInt(process.env.PORT || '8080');
+const port = parseInt(process.env.PORT || "8080");
 
 serve({
   fetch: app.fetch,
   port
 }, (info) => {
-  console.log('');
-  console.log('bethainy container running on port ' + info.port);
-  console.log('');
+  console.log("");
+  console.log("bethainy container running on port " + info.port);
+  console.log("");
 });
