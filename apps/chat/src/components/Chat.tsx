@@ -25,7 +25,6 @@ export function Chat({ token, onLogout }: ChatProps) {
   const [inputFocused, setInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const thinkingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -50,32 +49,6 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   useEffect(() => {
     checkContainerStatus();
-  }, []);
-
-  // Handle iOS keyboard - adjust viewport
-  useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current) {
-        const vh = window.visualViewport?.height || window.innerHeight;
-        containerRef.current.style.height = vh + "px";
-      }
-    };
-
-    // Use visualViewport API for iOS keyboard handling
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleResize);
-      window.visualViewport.addEventListener("scroll", handleResize);
-    }
-    window.addEventListener("resize", handleResize);
-    handleResize();
-
-    return () => {
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", handleResize);
-        window.visualViewport.removeEventListener("scroll", handleResize);
-      }
-      window.removeEventListener("resize", handleResize);
-    };
   }, []);
 
   useEffect(() => {
@@ -194,7 +167,9 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   if (containerState === "waking") {
     return (
-      <div ref={containerRef} className="flex flex-col" style={{ height: "100dvh" }}>
+      <div className="h-full flex flex-col">
+        {/* Ghost header for iOS */}
+        <div className="h-12 flex-shrink-0"></div>
         <div className="flex-1 overflow-hidden">
           <WakeUpAnimation onAwake={handleWakeComplete} />
         </div>
@@ -204,14 +179,17 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   if (containerState === "checking") {
     return (
-      <div ref={containerRef} className="flex flex-col items-center justify-center" style={{ height: "100dvh" }}>
+      <div className="h-full flex flex-col items-center justify-center">
         <div className="text-gray-400">Checking in...</div>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="flex flex-col" style={{ height: "100dvh" }}>
+    <div className="h-full flex flex-col">
+      {/* Ghost header - blends with background, gives iOS structure */}
+      <div className="h-12 flex-shrink-0"></div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4">
         {messages.length === 0 ? (
