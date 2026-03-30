@@ -16,13 +16,13 @@ export interface Message {
 const tools: Anthropic.Tool[] = [
   {
     name: 'read_file',
-    description: 'Read a file from the user\\'s data folder. Returns file content or null if not found.',
+    description: 'Read a file from the user\'s data folder. Returns file content or null if not found.',
     input_schema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         path: { 
           type: 'string', 
-          description: 'File path relative to user folder (e.g., "daily/notes.json", "fitness/meals/2026-03-30.json", "people/tracks/sarah.json")' 
+          description: 'File path relative to user folder (e.g., "daily/notes.json", "fitness/meals/2026-03-30.json")' 
         }
       },
       required: ['path']
@@ -30,9 +30,9 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'write_file',
-    description: 'Write/create a file in the user\\'s data folder. Creates directories as needed.',
+    description: 'Write/create a file in the user\'s data folder. Creates directories as needed.',
     input_schema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         path: { 
           type: 'string', 
@@ -48,9 +48,9 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: 'list_files',
-    description: 'List files in a directory in the user\\'s data folder.',
+    description: 'List files in a directory in the user\'s data folder.',
     input_schema: {
-      type: 'object',
+      type: 'object' as const,
       properties: {
         path: { 
           type: 'string', 
@@ -65,41 +65,42 @@ const tools: Anthropic.Tool[] = [
 // Execute a tool call
 async function executeTool(
   toolName: string,
-  toolInput: any,
+  toolInput: Record<string, unknown>,
   github: GitHubClient
 ): Promise<string> {
-  console.log(`Executing tool: ${toolName}`, JSON.stringify(toolInput).substring(0, 200));
+  console.log('Executing tool:', toolName, JSON.stringify(toolInput).substring(0, 200));
   
   try {
     switch (toolName) {
       case 'read_file': {
-        const file = await github.getFile(toolInput.path);
+        const file = await github.getFile(toolInput.path as string);
         if (file) {
           return file.content;
         } else {
-          return `File not found: ${toolInput.path}`;
+          return 'File not found: ' + toolInput.path;
         }
       }
       
       case 'write_file': {
-        await github.putFile(toolInput.path, toolInput.content);
-        return `Saved: ${toolInput.path}`;
+        await github.putFile(toolInput.path as string, toolInput.content as string);
+        return 'Saved: ' + toolInput.path;
       }
       
       case 'list_files': {
-        const files = await github.listDir(toolInput.path);
+        const files = await github.listDir(toolInput.path as string);
         if (files.length === 0) {
-          return `No files in: ${toolInput.path}`;
+          return 'No files in: ' + toolInput.path;
         }
-        return files.join('\\n');
+        return files.join('\n');
       }
       
       default:
-        return `Unknown tool: ${toolName}`;
+        return 'Unknown tool: ' + toolName;
     }
-  } catch (err: any) {
-    console.error(`Tool error (${toolName}):`, err);
-    return `Error: ${err.message}`;
+  } catch (err) {
+    const error = err as Error;
+    console.error('Tool error (' + toolName + '):', error);
+    return 'Error: ' + error.message;
   }
 }
 
@@ -121,7 +122,7 @@ export async function chat(
   });
   
   // Handle tool use loop
-  let currentMessages: any[] = messages.map(m => ({
+  let currentMessages: Anthropic.MessageParam[] = messages.map(m => ({
     role: m.role,
     content: m.content
   }));
@@ -147,7 +148,7 @@ export async function chat(
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     
     for (const toolUse of toolUseBlocks) {
-      const result = await executeTool(toolUse.name, toolUse.input, github);
+      const result = await executeTool(toolUse.name, toolUse.input as Record<string, unknown>, github);
       
       toolResults.push({
         type: 'tool_result',
