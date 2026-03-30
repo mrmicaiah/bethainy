@@ -7,7 +7,7 @@ import { DataClient } from './data.js';
 
 const app = new Hono();
 
-// User's timezone - hardcoded for now, could be per-user later
+// User's timezone
 const USER_TIMEZONE = 'America/Chicago';
 
 // Get date string in user's timezone
@@ -19,25 +19,19 @@ function getLocalDate(offsetDays: number = 0): string {
 }
 
 // Load all mode files at startup
-console.log('\n========================================');
+console.log('\\n========================================');
 console.log('bethainy container starting...');
-console.log('========================================\n');
+console.log('========================================\\n');
 
 console.log('Loading mode context...');
 let context: Context;
 
 try {
   context = await loadContext();
-  console.log('\u2713 Context loaded successfully');
+  console.log('✓ Context loaded successfully');
   console.log('  Modes available:', Object.keys(context.modes).join(', '));
-  console.log('  Instructions length:', context.instructions.length, 'chars');
-  if (context.modes.fitness) {
-    console.log('  Fitness mode:');
-    console.log('    - Diet plan:', context.modes.fitness.dietPlan ? `${context.modes.fitness.dietPlan.length} chars` : 'not loaded');
-    console.log('    - Workout plan:', context.modes.fitness.workoutPlan ? `${context.modes.fitness.workoutPlan.length} chars` : 'not loaded');
-  }
 } catch (err) {
-  console.error('\u2717 Failed to load context:', err);
+  console.error('✗ Failed to load context:', err);
   process.exit(1);
 }
 
@@ -53,7 +47,7 @@ app.get('/', (c) => {
   });
 });
 
-// Wake check - quick endpoint to verify container is ready
+// Wake check
 app.get('/wake', (c) => {
   return c.json({ 
     status: 'ready', 
@@ -61,6 +55,135 @@ app.get('/wake', (c) => {
     uptime: process.uptime()
   });
 });
+
+// Build user data context from D1
+async function buildUserDataContext(data: DataClient, today: string, yesterday: string): Promise<string> {
+  let ctx = '';
+  
+  try {
+    // ===== DAILY NOTES =====
+    const dailyNotes = await data.getDailyNotes('open');
+    if (dailyNotes.length > 0) {
+      ctx += '\\n\\n## Daily Notes (Open Tasks)\\n';
+      dailyNotes.forEach((note: any) => {
+        const noteData = typeof note === 'object' ? note : {};
+        ctx += `- ${noteData.content || note}`;
+        if (noteData.context) ctx += ` (${noteData.context})`;
+        ctx += '\\n';
+      });
+    }
+    
+    // ===== TODAY'S MEALS =====
+    const todaysMeals = await data.getTodaysMeals(today);
+    if (todaysMeals.length > 0) {
+      ctx += `\\n\\n## Today's Meals (${today})\\n`;
+      todaysMeals.forEach((meal: any) => {
+        const m = typeof meal.data === 'string' ? JSON.parse(meal.data) : meal.data;
+        const foods = m.foods ? m.foods.join(', ') : m.description || 'logged';
+        ctx += `- Meal ${m.meal_number || '?'}: ${foods} (${m.protein_g || 0}g protein)\\n`;
+      });
+    } else {
+      ctx += `\\n\\n## Today's Meals (${today})\\nNo meals logged yet today.\\n`;
+    }
+    
+    // ===== YESTERDAY'S MEALS =====
+    const yesterdaysMeals = await data.getTodaysMeals(yesterday);
+    if (yesterdaysMeals.length > 0) {
+      ctx += `\\n\\n## Yesterday's Meals (${yesterday})\\n`;
+      let totalProtein = 0;
+      yesterdaysMeals.forEach((meal: any) => {
+        const m = typeof meal.data === 'string' ? JSON.parse(meal.data) : meal.data;
+        const foods = m.foods ? m.foods.join(', ') : m.description || 'logged';
+        ctx += `- Meal ${m.meal_number || '?'}: ${foods} (${m.protein_g || 0}g protein)\\n`;
+        totalProtein += m.protein_g || 0;
+      });
+      ctx += `Total protein yesterday: ${totalProtein}g\\n`;
+    }
+    
+    // ===== RECENT WORKOUTS =====
+    const weekAgo = getLocalDate(-7);
+    const recentWorkouts = await data.getEntries('fitness', {
+      type: 'workout',
+      start: weekAgo,
+      end: today
+    });
+    if (recentWorkouts.length > 0) {
+      ctx += '\\n\\n## Recent Workouts\\n';
+      recentWorkouts.forEach((workout: any) => {
+        const w = typeof workout.data === 'string' ? JSON.parse(workout.data) : workout.data;
+        ctx += `- ${workout.date}: ${w.day_type} day (${w.duration_minutes || '?'} min)\\n`;
+      });
+    }
+    
+    // ===== BODY COMPOSITION =====
+    const recentComp = await data.getEntries('fitness', {
+      type: 'body_composition',
+      start: weekAgo,
+      end: today
+    });
+    if (recentComp.length > 0) {
+      const latest = recentComp[0];
+      const comp = typeof latest.data === 'string' ? JSON.parse(latest.data) : latest.data;
+      ctx += `\\n\\n## Latest Weigh-In (${latest.date})\\n`;
+      ctx += `- Weight: ${comp.weight_lb} lbs\\n`;
+      ctx += `- Body Fat: ${comp.body_fat_pct}%\\n`;
+      ctx += `- Muscle Mass: ${comp.muscle_mass_lb} lbs\\n`;
+    }
+    
+    // ===== ALL TRACKS =====
+    // Load tracks from all modes
+    const modes = ['fitness', 'people', 'projects', 'shopping', 'maintenance', 'money', 'learning', 'faith'];
+    for (const mode of modes) {
+      try {
+        const tracks = await data.getTracks(mode);
+        if (tracks && tracks.length > 0) {
+          ctx += `\\n\\n## ${mode.charAt(0).toUpperCase() + mode.slice(1)} Tracks\\n`;
+          tracks.forEach((track: any) => {
+            ctx += `- ${track.name}`;
+            if (track.status && track.status !== 'active') ctx += ` (${track.status})`;
+            ctx += '\\n';
+            
+            // Include relevant track data
+            if (track.current_list) {
+              const list = typeof track.current_list === 'string' ? JSON.parse(track.current_list) : track.current_list;
+              if (Array.isArray(list) && list.length > 0) {
+                list.forEach((item: any) => {
+                  const itemText = typeof item === 'string' ? item : item.item || item.content;
+                  ctx += `  - ${itemText}\\n`;
+                });
+              }
+            }
+            
+            if (track.tasks) {
+              const tasks = typeof track.tasks === 'string' ? JSON.parse(track.tasks) : track.tasks;
+              if (Array.isArray(tasks) && tasks.length > 0) {
+                tasks.forEach((task: any) => {
+                  const taskText = typeof task === 'string' ? task : task.task || task.content;
+                  ctx += `  - ${taskText}\\n`;
+                });
+              }
+            }
+            
+            if (track.situation) {
+              const situation = typeof track.situation === 'string' ? JSON.parse(track.situation) : track.situation;
+              if (situation && Object.keys(situation).length > 0) {
+                ctx += `  Current: ${JSON.stringify(situation)}\\n`;
+              }
+            }
+          });
+        }
+      } catch (err) {
+        // Mode might not have tracks yet
+      }
+    }
+    
+  } catch (err) {
+    console.error('Error building user data context:', err);
+    ctx += `\\n\\n## User Data\\nError loading: ${err}\\n`;
+  }
+  
+  return ctx;
+}
 
 // Chat endpoint
 app.post('/message', async (c) => {
@@ -70,128 +193,43 @@ app.post('/message', async (c) => {
     const body = await c.req.json();
     const { message, conversationHistory = [] } = body;
     
-    // Get user context from headers
     const userId = c.req.header('X-User-Id') || body.userId;
     const token = c.req.header('X-Auth-Token') || '';
     
-    console.log('\n--- New message ---');
+    console.log('\\n--- New message ---');
     console.log('User:', userId || 'unknown');
-    console.log('Token present:', token ? 'yes' : 'no');
-    console.log('Message:', message.substring(0, 100) + (message.length > 100 ? '...' : ''));
+    console.log('Message:', message.substring(0, 100));
     
-    // Create data client for this user
+    // Create data client
     const data = new DataClient(userId, token);
     
-    // Detect active mode from message
+    // Detect mode
     const activeMode = detectMode(message, context);
     console.log('Detected mode:', activeMode || 'general');
     
-    // Get dates in user's timezone
+    // Get dates
     const today = getLocalDate(0);
     const yesterday = getLocalDate(-1);
-    const weekAgo = getLocalDate(-7);
     
-    console.log('Date context (Central Time):', { today, yesterday, weekAgo });
+    // Load ALL user data
+    const userDataContext = await buildUserDataContext(data, today, yesterday);
     
-    // Load relevant user data for context
-    let userDataContext = '';
-    
-    if (activeMode === 'fitness') {
-      try {
-        // Get today's meals
-        console.log('Fetching today meals for', today);
-        const todaysMeals = await data.getTodaysMeals(today);
-        console.log('Today meals:', todaysMeals.length);
-        
-        if (todaysMeals.length > 0) {
-          userDataContext += `\n\n## Today's Meals (${today})\n`;
-          todaysMeals.forEach((meal) => {
-            const m = typeof meal.data === 'string' ? JSON.parse(meal.data) : meal.data;
-            const foods = m.foods ? m.foods.join(', ') : m.description || 'logged';
-            userDataContext += `- Meal ${m.meal_number}: ${foods} (${m.protein_g || 0}g protein)\n`;
-          });
-        } else {
-          userDataContext += `\n\n## Today's Meals (${today})\nNo meals logged yet today.\n`;
-        }
-        
-        // Get yesterday's meals
-        console.log('Fetching yesterday meals for', yesterday);
-        const yesterdaysMeals = await data.getTodaysMeals(yesterday);
-        console.log('Yesterday meals:', yesterdaysMeals.length);
-        
-        if (yesterdaysMeals.length > 0) {
-          userDataContext += `\n\n## Yesterday's Meals (${yesterday})\n`;
-          let totalProtein = 0;
-          yesterdaysMeals.forEach((meal) => {
-            const m = typeof meal.data === 'string' ? JSON.parse(meal.data) : meal.data;
-            const foods = m.foods ? m.foods.join(', ') : m.description || 'logged';
-            userDataContext += `- Meal ${m.meal_number}: ${foods} (${m.protein_g || 0}g protein)\n`;
-            totalProtein += m.protein_g || 0;
-          });
-          userDataContext += `Total protein yesterday: ${totalProtein}g\n`;
-        }
-        
-        // Get recent workouts (last 7 days)
-        console.log('Fetching recent workouts...');
-        const recentWorkouts = await data.getEntries('fitness', {
-          type: 'workout',
-          start: weekAgo,
-          end: today
-        });
-        console.log('Recent workouts:', recentWorkouts.length);
-        
-        if (recentWorkouts.length > 0) {
-          userDataContext += `\n\n## Recent Workouts\n`;
-          recentWorkouts.forEach((workout) => {
-            const w = typeof workout.data === 'string' ? JSON.parse(workout.data) : workout.data;
-            userDataContext += `- ${workout.date}: ${w.day_type} day (${w.duration_minutes || '?'} min)\n`;
-          });
-        }
-        
-        // Get recent body composition
-        console.log('Fetching body composition...');
-        const recentComp = await data.getEntries('fitness', {
-          type: 'body_composition',
-          start: weekAgo,
-          end: today
-        });
-        console.log('Body comp entries:', recentComp.length);
-        
-        if (recentComp.length > 0) {
-          const latest = recentComp[0];
-          const comp = typeof latest.data === 'string' ? JSON.parse(latest.data) : latest.data;
-          userDataContext += `\n\n## Latest Weigh-In (${latest.date})\n`;
-          userDataContext += `- Weight: ${comp.weight_lb} lbs\n`;
-          userDataContext += `- Body Fat: ${comp.body_fat_pct}%\n`;
-          userDataContext += `- Muscle Mass: ${comp.muscle_mass_lb} lbs\n`;
-          if (comp.notes) userDataContext += `- Notes: ${comp.notes}\n`;
-        }
-        
-      } catch (err) {
-        console.error('Could not load user fitness data:', err);
-        userDataContext += `\n\n## User Data\nCould not load user data: ${err}\n`;
-      }
-    }
-    
-    console.log('User data context length:', userDataContext.length, 'chars');
-    
-    // Build system prompt with full context
+    // Build system prompt
     const systemPrompt = buildSystemPrompt(activeMode, context, USER_TIMEZONE) + userDataContext;
-    console.log('Total system prompt length:', systemPrompt.length, 'chars');
+    console.log('System prompt length:', systemPrompt.length, 'chars');
     
-    // Add user message to history
+    // Prepare messages
     const messages = [
       ...conversationHistory,
       { role: 'user' as const, content: message }
     ];
     
-    // Call Claude
+    // Call Claude with data client for tool execution
     console.log('Calling Claude...');
-    const response = await chat(systemPrompt, messages);
+    const response = await chat(systemPrompt, messages, data, today);
     
     const duration = Date.now() - startTime;
-    console.log('Response received in', duration, 'ms');
-    console.log('Response preview:', response.substring(0, 100) + (response.length > 100 ? '...' : ''));
+    console.log('Response in', duration, 'ms');
     
     return c.json({
       message: response,
@@ -210,7 +248,5 @@ serve({
   fetch: app.fetch,
   port
 }, (info) => {
-  console.log('\n========================================');
-  console.log(`bethainy container running on port ${info.port}`);
-  console.log('========================================\n');
+  console.log(`\\nbethainy container running on port ${info.port}\\n`);
 });
