@@ -1,0 +1,9 @@
+CREATE INDEX idx_tracks_user ON tracks(user_id);
+CREATE INDEX idx_tracks_mode ON tracks(mode_id);
+CREATE INDEX idx_entries_user ON entries(user_id);
+CREATE INDEX idx_entries_track ON entries(track_id);
+CREATE INDEX idx_entries_date ON entries(date);
+CREATE INDEX idx_entries_type ON entries(type);
+CREATE INDEX idx_daily_notes_user ON daily_notes(user_id);
+CREATE INDEX idx_daily_notes_status ON daily_notes(status);
+CREATE INDEX idx_messages_conversation ON messages(conversation_id);
