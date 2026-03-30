@@ -32,6 +32,23 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Auto-resize textarea as user types
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      // Calculate line height (approximately 24px per line)
+      const lineHeight = 24;
+      const maxLines = 3;
+      const maxHeight = lineHeight * maxLines;
+      // Set height to scrollHeight but cap at maxLines
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      // Enable scrolling if content exceeds max height
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+  }, [input]);
+
   // Check if container is awake on mount
   useEffect(() => {
     checkContainerStatus();
@@ -220,8 +237,12 @@ export function Chat({ user, token, onLogout }: ChatProps) {
             onKeyDown={handleKeyDown}
             placeholder="Message bethainy..."
             rows={1}
-            className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none focus:outline-none max-h-32"
-            style={{ minHeight: '24px' }}
+            className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none focus:outline-none"
+            style={{ 
+              minHeight: '24px',
+              maxHeight: '72px',  // 3 lines * 24px
+              overflowY: 'hidden'
+            }}
           />
           <button
             onClick={sendMessage}
