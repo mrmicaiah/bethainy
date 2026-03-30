@@ -7,6 +7,17 @@ import { DataClient } from './data.js';
 
 const app = new Hono();
 
+// User's timezone - hardcoded for now, could be per-user later
+const USER_TIMEZONE = 'America/Chicago';
+
+// Get date string in user's timezone
+function getLocalDate(offsetDays: number = 0): string {
+  const now = new Date();
+  const localDate = new Date(now.toLocaleString('en-US', { timeZone: USER_TIMEZONE }));
+  localDate.setDate(localDate.getDate() + offsetDays);
+  return localDate.toISOString().split('T')[0];
+}
+
 // Load all mode files at startup
 console.log('\n========================================');
 console.log('bethainy container starting...');
@@ -75,12 +86,12 @@ app.post('/message', async (c) => {
     const activeMode = detectMode(message, context);
     console.log('Detected mode:', activeMode || 'general');
     
-    // Get today's date and recent dates
-    const today = new Date().toISOString().split('T')[0];
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Get dates in user's timezone
+    const today = getLocalDate(0);
+    const yesterday = getLocalDate(-1);
+    const weekAgo = getLocalDate(-7);
     
-    console.log('Date context:', { today, yesterday, weekAgo });
+    console.log('Date context (Central Time):', { today, yesterday, weekAgo });
     
     // Load relevant user data for context
     let userDataContext = '';
@@ -88,7 +99,7 @@ app.post('/message', async (c) => {
     if (activeMode === 'fitness') {
       try {
         // Get today's meals
-        console.log('Fetching today meals...');
+        console.log('Fetching today meals for', today);
         const todaysMeals = await data.getTodaysMeals(today);
         console.log('Today meals:', todaysMeals.length);
         
@@ -104,7 +115,7 @@ app.post('/message', async (c) => {
         }
         
         // Get yesterday's meals
-        console.log('Fetching yesterday meals...');
+        console.log('Fetching yesterday meals for', yesterday);
         const yesterdaysMeals = await data.getTodaysMeals(yesterday);
         console.log('Yesterday meals:', yesterdaysMeals.length);
         
@@ -165,7 +176,7 @@ app.post('/message', async (c) => {
     console.log('User data context length:', userDataContext.length, 'chars');
     
     // Build system prompt with full context
-    const systemPrompt = buildSystemPrompt(activeMode, context) + userDataContext;
+    const systemPrompt = buildSystemPrompt(activeMode, context, USER_TIMEZONE) + userDataContext;
     console.log('Total system prompt length:', systemPrompt.length, 'chars');
     
     // Add user message to history
