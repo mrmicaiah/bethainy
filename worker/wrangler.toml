@@ -8,6 +8,6 @@ database_name = "bethainy"
 database_id = "984ed5e0-5f65-44d0-b058-2fe97399166e"
 
 [vars]
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = "claude-opus-4-20250514"
 
 # Set these via: wrangler secret put ANTHROPIC_API_KEY
