@@ -1,4 +1,4 @@
-name = "bethainy-api"
+name = "bethainy"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
 
