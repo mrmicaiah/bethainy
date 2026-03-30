@@ -44,6 +44,15 @@ app.use('/*', cors({
 // Health check
 app.get('/', (c) => c.json({ status: 'ok', app: 'bethainy' }));
 
+// DEBUG endpoint - remove after debugging
+app.get('/debug/entries/:userId', async (c) => {
+  const userId = c.req.param('userId');
+  const entries = await c.env.DB.prepare(
+    'SELECT id, mode, type, date, data FROM entries WHERE user_id = ? ORDER BY date DESC'
+  ).bind(userId).all();
+  return c.json(entries.results);
+});
+
 // Public routes
 app.route('/users', userRoutes);
 
