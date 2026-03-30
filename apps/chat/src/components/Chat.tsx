@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
+import { WakeUpAnimation } from './WakeUpAnimation';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -12,11 +13,14 @@ interface ChatProps {
   onLogout: () => void;
 }
 
+type ContainerState = 'checking' | 'waking' | 'awake';
+
 export function Chat({ user, token, onLogout }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [containerState, setContainerState] = useState<ContainerState>('checking');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,6 +32,51 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Check if container is awake on mount
+  useEffect(() => {
+    checkContainerStatus();
+  }, []);
+
+  const checkContainerStatus = async () => {
+    setContainerState('checking');
+    try {
+      const response = await api.wake();
+      if (response.status === 'awake') {
+        setContainerState('awake');
+      } else {
+        setContainerState('waking');
+      }
+    } catch {
+      // Container is starting up
+      setContainerState('waking');
+    }
+  };
+
+  const handleWakeComplete = useCallback(async () => {
+    // Poll until container is actually ready
+    const pollUntilAwake = async (attempts = 0): Promise<void> => {
+      if (attempts > 30) {
+        // Give up after ~30 seconds
+        setContainerState('awake'); // Let them try anyway
+        return;
+      }
+      
+      try {
+        const response = await api.wake();
+        if (response.status === 'awake') {
+          setContainerState('awake');
+          inputRef.current?.focus();
+        } else {
+          setTimeout(() => pollUntilAwake(attempts + 1), 1000);
+        }
+      } catch {
+        setTimeout(() => pollUntilAwake(attempts + 1), 1000);
+      }
+    };
+    
+    await pollUntilAwake();
+  }, []);
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
 
@@ -37,14 +86,23 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     setLoading(true);
 
     try {
-      const response = await api.sendMessage(userMessage, conversationId || undefined);
-      setConversationId(response.conversationId);
+      const response = await api.sendMessage(userMessage, messages, conversationId || undefined);
+      if (response.conversationId) {
+        setConversationId(response.conversationId);
+      }
       setMessages((prev) => [...prev, { role: 'assistant', content: response.message }]);
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: `Error: ${err.message}` },
-      ]);
+      // Check if it's a wake-up issue
+      if (err.message?.includes('waking') || err.status === 503) {
+        setContainerState('waking');
+        setMessages((prev) => prev.slice(0, -1)); // Remove the user message
+        setInput(userMessage); // Put the message back
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `Something went wrong: ${err.message}` },
+        ]);
+      }
     } finally {
       setLoading(false);
       inputRef.current?.focus();
@@ -62,6 +120,36 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     setMessages([]);
     setConversationId(null);
   };
+
+  // Show wake-up animation if container is starting
+  if (containerState === 'waking') {
+    return (
+      <div className="h-full flex flex-col">
+        <header className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+          <div className="w-12" />
+          <h1 className="font-semibold">bethainy</h1>
+          <button
+            onClick={onLogout}
+            className="text-gray-400 hover:text-white transition-colors text-sm"
+          >
+            Logout
+          </button>
+        </header>
+        <div className="flex-1">
+          <WakeUpAnimation onAwake={handleWakeComplete} />
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading spinner while checking
+  if (containerState === 'checking') {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-gray-400">Checking in...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">

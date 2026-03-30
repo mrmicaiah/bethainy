@@ -1,14 +1,21 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
   theme: {
     extend: {
       colors: {
-        primary: '#6366f1',
-        surface: '#1a1a2e',
-        'surface-light': '#25253d',
+        primary: 'var(--color-primary)',
+        surface: 'var(--color-surface)',
+        'surface-light': 'var(--color-surface-light)',
+        background: 'var(--color-background)',
+      },
+      animation: {
+        'bounce-slow': 'bounce-slow 2s ease-in-out infinite',
       },
     },
   },
   plugins: [],
-};
+}
