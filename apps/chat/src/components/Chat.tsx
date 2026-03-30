@@ -25,6 +25,7 @@ export function Chat({ token, onLogout }: ChatProps) {
   const [inputFocused, setInputFocused] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const thinkingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -49,6 +50,32 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   useEffect(() => {
     checkContainerStatus();
+  }, []);
+
+  // Handle iOS keyboard - adjust viewport
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        const vh = window.visualViewport?.height || window.innerHeight;
+        containerRef.current.style.height = vh + "px";
+      }
+    };
+
+    // Use visualViewport API for iOS keyboard handling
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+      window.visualViewport.addEventListener("scroll", handleResize);
+    }
+    window.addEventListener("resize", handleResize);
+    handleResize();
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleResize);
+        window.visualViewport.removeEventListener("scroll", handleResize);
+      }
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   useEffect(() => {
@@ -167,7 +194,7 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   if (containerState === "waking") {
     return (
-      <div className="chat-container">
+      <div ref={containerRef} className="flex flex-col" style={{ height: "100dvh" }}>
         <div className="flex-1 overflow-hidden">
           <WakeUpAnimation onAwake={handleWakeComplete} />
         </div>
@@ -177,20 +204,20 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   if (containerState === "checking") {
     return (
-      <div className="chat-container items-center justify-center">
+      <div ref={containerRef} className="flex flex-col items-center justify-center" style={{ height: "100dvh" }}>
         <div className="text-gray-400">Checking in...</div>
       </div>
     );
   }
 
   return (
-    <div className="chat-container">
+    <div ref={containerRef} className="flex flex-col" style={{ height: "100dvh" }}>
       {/* Messages */}
-      <div className="chat-messages hide-scrollbar space-y-4">
+      <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center pt-32">
+          <div className="h-full flex flex-col items-center justify-end pb-8">
             <div className="w-16 h-px bg-white/20 mb-6"></div>
-            <p className="text-gray-400 text-center text-lg">Hi, I'm bethainy</p>
+            <p className="text-gray-400 text-center text-lg">Hi, I'm BethAiny</p>
             <p className="text-gray-500 text-center text-sm mt-1">Your intuitive assistant for life</p>
           </div>
         ) : (
@@ -213,7 +240,7 @@ export function Chat({ token, onLogout }: ChatProps) {
       </div>
 
       {/* Input Area */}
-      <div className="chat-input-area">
+      <div className="flex-shrink-0 p-4 border-t border-white/10 bg-surface">
         {/* Toolbar - shows when keyboard is focused */}
         {inputFocused && (
           <div className="flex justify-between items-center mb-3 px-1">
@@ -248,7 +275,7 @@ export function Chat({ token, onLogout }: ChatProps) {
             onKeyDown={handleKeyDown}
             onFocus={handleInputFocus}
             onBlur={handleInputBlur}
-            placeholder="Message bethainy..."
+            placeholder="Message BethAiny..."
             rows={1}
             className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none focus:outline-none"
             style={{ minHeight: "24px", maxHeight: "72px", overflowY: "hidden" }}
