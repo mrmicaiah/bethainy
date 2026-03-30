@@ -131,3 +131,51 @@ dataRoutes.get('/feed', async (c) => {
     recent: recent.results,
   });
 });
+
+// ============ INSTRUCTIONS ENDPOINTS ============
+
+// Get current instructions
+dataRoutes.get('/instructions', async (c) => {
+  const userId = c.get('userId');
+  
+  const doc = await c.env.DB.prepare(
+    'SELECT * FROM system_docs WHERE id = ? AND user_id = ?'
+  ).bind('instructions', userId).first();
+  
+  return c.json({
+    content: doc?.content || null,
+    updated_at: doc?.updated_at || null,
+  });
+});
+
+// Update instructions
+dataRoutes.put('/instructions', async (c) => {
+  const userId = c.get('userId');
+  const { content } = await c.req.json();
+  
+  if (typeof content !== 'string') {
+    return c.json({ error: 'Content must be a string' }, 400);
+  }
+  
+  // Upsert instructions
+  await c.env.DB.prepare(
+    `INSERT INTO system_docs (id, user_id, content, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET
+       content = excluded.content,
+       updated_at = excluded.updated_at`
+  ).bind('instructions', userId, content).run();
+  
+  return c.json({ success: true, updated: true });
+});
+
+// Delete instructions (revert to defaults)
+dataRoutes.delete('/instructions', async (c) => {
+  const userId = c.get('userId');
+  
+  await c.env.DB.prepare(
+    'DELETE FROM system_docs WHERE id = ? AND user_id = ?'
+  ).bind('instructions', userId).run();
+  
+  return c.json({ success: true, deleted: true });
+});
