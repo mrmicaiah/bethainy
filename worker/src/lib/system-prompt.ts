@@ -6,73 +6,87 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
     'SELECT * FROM users WHERE id = ?'
   ).bind(userId).first();
   
-  // Get core instructions only
-  const instructions = await db.prepare(
-    'SELECT content FROM system_docs WHERE id = ? AND user_id = ?'
-  ).bind('instructions', userId).first();
+  // Get modes (just names)
+  const modes = await db.prepare(
+    'SELECT name FROM modes WHERE user_id = ?'
+  ).bind(userId).all();
   
   // Get active tracks (summary only)
   const tracks = await db.prepare(
-    `SELECT id, name, mode_id, situation, progress FROM tracks WHERE user_id = ? AND status = 'active'`
+    `SELECT name, mode_id, situation FROM tracks WHERE user_id = ? AND status = 'active'`
   ).bind(userId).all();
   
-  // Get open daily notes
-  const dailyNotes = await db.prepare(
-    `SELECT task FROM daily_notes WHERE user_id = ? AND status = 'open' LIMIT 5`
-  ).bind(userId).all();
+  // Get open tasks count
+  const taskCount = await db.prepare(
+    `SELECT COUNT(*) as count FROM daily_notes WHERE user_id = ? AND status = 'open'`
+  ).bind(userId).first();
 
   const today = new Date().toISOString().split('T')[0];
   const userName = user?.name || 'friend';
+  const modeNames = modes.results.map((m: any) => m.name).join(', ');
   
   let prompt = `# bethainy
 
 Today: ${today}
 User: ${userName}
 
+You are a life assistant. User talks naturally — you manage state invisibly. Never mention "modes" to the user.
+
+## Your Modes
+${modeNames}
+
+## Mode Triggers
+
+| User says... | Load mode |
+|--------------|-----------|
+| gym, workout, train | Fitness |
+| ready to eat, lunch, dinner, breakfast, hungry | Fitness |
+| [person name] + info about them | People |
+| at the store, at Lowes, need X from Y | Shopping |
+| good morning, whats my day | Daily |
+| working on [project] | Projects |
+| spent $X, track spending | Money |
+| lets journal | Journal |
+| studying, learning, my course | Learning |
+| devotional, Bible study | Faith |
+| car/house + maintenance | Maintenance |
+
+## How It Works
+
+1. Detect context from what user says
+2. Call **get_mode_instructions** with the mode name
+3. Read the instructions returned
+4. Follow those instructions exactly
+5. Use tools to save data — dont just acknowledge
+
+## Active Tracks
 `;
 
-  // Core instructions
-  if (instructions?.content) {
-    prompt += (instructions as any).content + '\n\n';
-  } else {
-    prompt += `You are a life assistant. Detect context, help naturally, save important info using tools.\n\n`;
-  }
-
-  // Active tracks summary
   if (tracks.results.length > 0) {
-    prompt += `## Active Tracks\n`;
     for (const track of tracks.results as any[]) {
       const modeName = track.mode_id.split('_').pop();
       let line = `- ${track.name} (${modeName})`;
       if (track.situation) {
-        const sit = JSON.parse(track.situation);
-        if (sit.current) line += ` — ${sit.current}`;
+        try {
+          const sit = JSON.parse(track.situation);
+          if (sit.current) line += ` — ${sit.current}`;
+        } catch {}
       }
       prompt += line + '\n';
     }
-    prompt += '\n';
+  } else {
+    prompt += 'None yet.\n';
   }
 
-  // Open tasks
-  if (dailyNotes.results.length > 0) {
-    prompt += `## Open Tasks\n`;
-    for (const note of dailyNotes.results as any[]) {
-      prompt += `- ${(note as any).task}\n`;
-    }
-    prompt += '\n';
-  }
+  prompt += `
+## Open Tasks
+${(taskCount as any)?.count || 0} tasks waiting
 
-  // Tools and mode loading instruction
-  prompt += `## Tools
-
-You have tools to read and write data:
-- get_tracks, get_track, create_track, update_track
-- create_entry, get_entries  
-- add_daily_note, complete_daily_note
-- get_daily_plan, update_daily_plan
-- **get_mode_instructions** — call this to load specific mode instructions when you detect a context
-
-When you detect a context (gym, eating, person, project, etc.), use get_mode_instructions to load that mode's full instructions, then follow them.
+## Tone
+- Direct and practical
+- Dont over-explain
+- Push when slacking
+- No corporate fluff
 `;
 
   return prompt;
