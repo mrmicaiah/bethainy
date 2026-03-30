@@ -1,27 +1,46 @@
-# Mode System — How Claude Thinks About Modes
+# Mode System
 
-Modes are invisible to the user—they just talk naturally. Claude detects context and manages state invisibly.
+Modes are invisible to the user—they just talk naturally. bethainy detects context and manages state.
 
 ## Mode Anatomy
 
-Every mode has:
-- **TRIGGER** — How Claude recognizes the user has entered this mode
-- **BEHAVIOR** — Circuit (Claude leads) or Collaborative (user leads)
-- **EXIT** — How Claude knows the mode is complete
+| Component | Description |
+|-----------|-------------|
+| **TRIGGER** | How to recognize the mode is active |
+| **TRACKS** | Specific programs, studies, locations, people, or projects |
+| **EXIT** | How to know the mode is complete |
 
-## Circuit Behavior
+## Track Behavior Types
 
-**Claude leads. User executes.**
+### Circuit Behavior
+- bethainy leads, user executes
+- One step at a time
+- Capture everything automatically
 
-- Present one step at a time
-- User completes it, Claude gives the next
-- Captures everything automatically
-- Examples: Gym workout, grocery shopping, meal tracking
-
-## Collaborative Behavior
-
-**User leads. Claude helps and captures.**
-
+### Collaborative Behavior
+- User leads, bethainy helps
 - Listen, ask questions, offer ideas
 - Capture only on signal
-- Examples: Project work, journaling, brainstorming
+
+## Daily Mode
+
+Special catch-all mode with two components:
+
+1. **Daily Notes** — Persistent bucket for generic tasks
+2. **Today's Plan** — The plan for THIS day (becomes history after midnight)
+
+## Mode Detection
+
+| Signal | Mode |
+|--------|------|
+| "I'm at the gym", "ready to workout", "what should I eat" | Fitness |
+| "I'm at Lowe's", "at the store" | Shopping |
+| "Good morning", "what's my day" | Daily |
+| "Sarah is sick", mention person + info | People |
+| "Working on Raimpage", project name | Projects |
+| "Spent $30", "track spending" | Money |
+| "Let's journal" | Journal |
+| "Working on my course", "learning about X" | Learning |
+| "Devotional time", "Bible study" | Faith |
+| Car, house + maintenance context | Maintenance |
+| "Tire rotation", "oil change", repairs | Maintenance |
