@@ -14,23 +14,41 @@ export class DataClient {
   constructor(userId: string, token: string) {
     this.userId = userId;
     this.token = token;
+    console.log('DataClient initialized:');
+    console.log('  WORKER_URL:', WORKER_URL);
+    console.log('  userId:', userId);
+    console.log('  token:', token ? `${token.substring(0, 20)}...` : 'MISSING');
   }
   
   private async request(path: string, options: RequestInit = {}) {
-    const response = await fetch(`${WORKER_URL}/data${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.token}`,
-        ...options.headers,
-      },
-    });
+    const url = `${WORKER_URL}/data${path}`;
+    console.log(`DataClient request: ${options.method || 'GET'} ${url}`);
     
-    if (!response.ok) {
-      throw new Error(`Data API error: ${response.status}`);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.token}`,
+          ...options.headers,
+        },
+      });
+      
+      console.log(`DataClient response: ${response.status} ${response.statusText}`);
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error(`DataClient error response body: ${text}`);
+        throw new Error(`Data API error: ${response.status} - ${text}`);
+      }
+      
+      const data = await response.json();
+      console.log(`DataClient response data:`, JSON.stringify(data).substring(0, 200));
+      return data;
+    } catch (err: any) {
+      console.error(`DataClient fetch error:`, err.message);
+      throw err;
     }
-    
-    return response.json();
   }
   
   // ============ TRACKS ============
