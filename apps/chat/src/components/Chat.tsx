@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { api } from '../lib/api';
-import { WakeUpAnimation } from './WakeUpAnimation';
+import { useState, useRef, useEffect, useCallback } from "react";
+import { api } from "../lib/api";
+import { WakeUpAnimation } from "./WakeUpAnimation";
+import { getThinkingSequence } from "../lib/thinking-phrases";
 
 interface Message {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -13,39 +14,37 @@ interface ChatProps {
   onLogout: () => void;
 }
 
-type ContainerState = 'checking' | 'waking' | 'awake';
+type ContainerState = "checking" | "waking" | "awake";
 
 export function Chat({ user, token, onLogout }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [thinkingPhrase, setThinkingPhrase] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [containerState, setContainerState] = useState<ContainerState>('checking');
+  const [containerState, setContainerState] = useState<ContainerState>("checking");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const thinkingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     api.setToken(token);
   }, [token]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   // Auto-resize textarea as user types
   useEffect(() => {
     const textarea = inputRef.current;
     if (textarea) {
-      // Reset height to auto to get the correct scrollHeight
-      textarea.style.height = 'auto';
-      // Calculate line height (approximately 24px per line)
+      textarea.style.height = "auto";
       const lineHeight = 24;
       const maxLines = 3;
       const maxHeight = lineHeight * maxLines;
-      // Set height to scrollHeight but cap at maxLines
       textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
-      // Enable scrolling if content exceeds max height
-      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
     }
   }, [input]);
 
@@ -54,34 +53,62 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     checkContainerStatus();
   }, []);
 
+  // Rotate thinking phrases while loading
+  useEffect(() => {
+    if (loading) {
+      // Get a sequence of phrases to rotate through
+      const phrases = getThinkingSequence(20);
+      let index = 0;
+      
+      // Set initial phrase
+      setThinkingPhrase(phrases[0]);
+      
+      // Rotate every 2-3 seconds
+      thinkingIntervalRef.current = window.setInterval(() => {
+        index = (index + 1) % phrases.length;
+        setThinkingPhrase(phrases[index]);
+      }, 2000 + Math.random() * 1000);
+    } else {
+      // Clear interval when not loading
+      if (thinkingIntervalRef.current) {
+        clearInterval(thinkingIntervalRef.current);
+        thinkingIntervalRef.current = null;
+      }
+      setThinkingPhrase("");
+    }
+    
+    return () => {
+      if (thinkingIntervalRef.current) {
+        clearInterval(thinkingIntervalRef.current);
+      }
+    };
+  }, [loading]);
+
   const checkContainerStatus = async () => {
-    setContainerState('checking');
+    setContainerState("checking");
     try {
       const response = await api.wake();
-      if (response.status === 'awake') {
-        setContainerState('awake');
+      if (response.status === "awake") {
+        setContainerState("awake");
       } else {
-        setContainerState('waking');
+        setContainerState("waking");
       }
     } catch {
-      // Container is starting up
-      setContainerState('waking');
+      setContainerState("waking");
     }
   };
 
   const handleWakeComplete = useCallback(async () => {
-    // Poll until container is actually ready
     const pollUntilAwake = async (attempts = 0): Promise<void> => {
       if (attempts > 30) {
-        // Give up after ~30 seconds
-        setContainerState('awake'); // Let them try anyway
+        setContainerState("awake");
         return;
       }
       
       try {
         const response = await api.wake();
-        if (response.status === 'awake') {
-          setContainerState('awake');
+        if (response.status === "awake") {
+          setContainerState("awake");
           inputRef.current?.focus();
         } else {
           setTimeout(() => pollUntilAwake(attempts + 1), 1000);
@@ -98,32 +125,30 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     if (!input.trim() || loading) return;
 
     const userMessage = input.trim();
-    setInput('');
+    setInput("");
     
-    // Add user message to display immediately
-    const newUserMsg: Message = { role: 'user', content: userMessage };
+    const newUserMsg: Message = { role: "user", content: userMessage };
     setMessages((prev) => [...prev, newUserMsg]);
     setLoading(true);
 
     try {
-      // Send FULL history including the new user message
       const fullHistory = [...messages, newUserMsg];
       const response = await api.sendMessage(userMessage, fullHistory, conversationId || undefined);
       
       if (response.conversationId) {
         setConversationId(response.conversationId);
       }
-      setMessages((prev) => [...prev, { role: 'assistant', content: response.message }]);
-    } catch (err: any) {
-      // Check if it's a wake-up issue
-      if (err.message?.includes('waking') || err.status === 503) {
-        setContainerState('waking');
-        setMessages((prev) => prev.slice(0, -1)); // Remove the user message
-        setInput(userMessage); // Put the message back
+      setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
+    } catch (err: unknown) {
+      const error = err as { message?: string; status?: number };
+      if (error.message?.includes("waking") || error.status === 503) {
+        setContainerState("waking");
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(userMessage);
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `Something went wrong: ${err.message}` },
+          { role: "assistant", content: "Something went wrong: " + (error.message || "Unknown error") },
         ]);
       }
     } finally {
@@ -133,7 +158,7 @@ export function Chat({ user, token, onLogout }: ChatProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
     }
@@ -144,8 +169,7 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     setConversationId(null);
   };
 
-  // Show wake-up animation if container is starting
-  if (containerState === 'waking') {
+  if (containerState === "waking") {
     return (
       <div className="h-full flex flex-col">
         <header className="flex items-center justify-between px-4 py-3 border-b border-white/10">
@@ -165,8 +189,7 @@ export function Chat({ user, token, onLogout }: ChatProps) {
     );
   }
 
-  // Show loading spinner while checking
-  if (containerState === 'checking') {
+  if (containerState === "checking") {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-gray-400">Checking in...</div>
@@ -176,7 +199,6 @@ export function Chat({ user, token, onLogout }: ChatProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-white/10">
         <button
           onClick={startNewChat}
@@ -193,23 +215,22 @@ export function Chat({ user, token, onLogout }: ChatProps) {
         </button>
       </header>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto hide-scrollbar p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <p className="text-gray-500">Hey{user.name ? ` ${user.name}` : ''}. What's up?</p>
+            <p className="text-gray-500">Hey{user.name ? " " + user.name : ""}. What's up?</p>
           </div>
         ) : (
           messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[85%] px-4 py-2 rounded-2xl ${
-                  msg.role === 'user'
-                    ? 'bg-primary text-white'
-                    : 'bg-surface-light text-gray-100'
+                  msg.role === "user"
+                    ? "bg-primary text-white"
+                    : "bg-surface-light text-gray-100"
                 }`}
               >
                 <p className="whitespace-pre-wrap">{msg.content}</p>
@@ -220,14 +241,13 @@ export function Chat({ user, token, onLogout }: ChatProps) {
         {loading && (
           <div className="flex justify-start">
             <div className="bg-surface-light px-4 py-2 rounded-2xl">
-              <p className="text-gray-400">...</p>
+              <p className="text-gray-400 italic">{thinkingPhrase}</p>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="p-4 border-t border-white/10">
         <div className="flex items-end gap-2 bg-surface-light rounded-2xl px-4 py-2">
           <textarea
@@ -239,9 +259,9 @@ export function Chat({ user, token, onLogout }: ChatProps) {
             rows={1}
             className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none focus:outline-none"
             style={{ 
-              minHeight: '24px',
-              maxHeight: '72px',  // 3 lines * 24px
-              overflowY: 'hidden'
+              minHeight: "24px",
+              maxHeight: "72px",
+              overflowY: "hidden"
             }}
           />
           <button
