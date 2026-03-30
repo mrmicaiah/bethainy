@@ -19,19 +19,21 @@ function getLocalDate(offsetDays: number = 0): string {
 }
 
 // Load all mode files at startup
-console.log('\\n========================================');
+console.log('');
+console.log('========================================');
 console.log('bethainy container starting...');
-console.log('========================================\\n');
+console.log('========================================');
+console.log('');
 
 console.log('Loading mode context...');
 let context: Context;
 
 try {
   context = await loadContext();
-  console.log('✓ Context loaded successfully');
+  console.log('Context loaded successfully');
   console.log('  Modes available:', Object.keys(context.modes).join(', '));
 } catch (err) {
-  console.error('✗ Failed to load context:', err);
+  console.error('Failed to load context:', err);
   process.exit(1);
 }
 
@@ -66,7 +68,8 @@ app.post('/message', async (c) => {
     
     const userId = c.req.header('X-User-Id') || body.userId;
     
-    console.log('\\n--- New message ---');
+    console.log('');
+    console.log('--- New message ---');
     console.log('User:', userId || 'unknown');
     console.log('Message:', message.substring(0, 100));
     
@@ -95,44 +98,44 @@ app.post('/message', async (c) => {
       // Daily notes (always relevant)
       const dailyNotes = await github.getDailyNotes();
       if (dailyNotes.tasks && dailyNotes.tasks.length > 0) {
-        userDataContext += '\\n\\n## Daily Tasks\\n';
-        dailyNotes.tasks.forEach((task: any) => {
+        userDataContext += '\n\n## Daily Tasks\n';
+        for (const task of dailyNotes.tasks) {
           const taskText = typeof task === 'string' ? task : task.content || task.task;
-          userDataContext += `- ${taskText}\\n`;
-        });
+          userDataContext += '- ' + taskText + '\n';
+        }
       }
       
       // Diet and workout plans (if fitness mode)
       if (activeMode === 'fitness') {
         const dietPlan = await github.getDietPlan();
         if (dietPlan && dietPlan.length > 50) {
-          userDataContext += '\\n\\n## Diet Plan\\n' + dietPlan + '\\n';
+          userDataContext += '\n\n## Diet Plan\n' + dietPlan + '\n';
         }
         
         const workoutPlan = await github.getWorkoutPlan();
         if (workoutPlan && workoutPlan.length > 50) {
-          userDataContext += '\\n\\n## Workout Plan\\n' + workoutPlan + '\\n';
+          userDataContext += '\n\n## Workout Plan\n' + workoutPlan + '\n';
         }
         
         // Today's meals
         const todayMeals = await github.getMeals(today);
         if (todayMeals) {
-          userDataContext += `\\n\\n## Today's Meals (${today})\\n`;
-          userDataContext += JSON.stringify(todayMeals, null, 2) + '\\n';
+          userDataContext += '\n\n## Today\'s Meals (' + today + ')\n';
+          userDataContext += JSON.stringify(todayMeals, null, 2) + '\n';
         }
         
         // Yesterday's meals
         const yesterdayMeals = await github.getMeals(yesterday);
         if (yesterdayMeals) {
-          userDataContext += `\\n\\n## Yesterday's Meals (${yesterday})\\n`;
-          userDataContext += JSON.stringify(yesterdayMeals, null, 2) + '\\n';
+          userDataContext += '\n\n## Yesterday\'s Meals (' + yesterday + ')\n';
+          userDataContext += JSON.stringify(yesterdayMeals, null, 2) + '\n';
         }
         
         // Recent body comp
         const bodyComp = await github.getBodyComposition(today) || await github.getBodyComposition(yesterday);
         if (bodyComp) {
-          userDataContext += '\\n\\n## Recent Body Composition\\n';
-          userDataContext += JSON.stringify(bodyComp, null, 2) + '\\n';
+          userDataContext += '\n\n## Recent Body Composition\n';
+          userDataContext += JSON.stringify(bodyComp, null, 2) + '\n';
         }
       }
       
@@ -162,9 +165,10 @@ app.post('/message', async (c) => {
       mode: activeMode,
       timing: { duration }
     });
-  } catch (err: any) {
-    console.error('Chat error:', err);
-    return c.json({ error: err.message }, 500);
+  } catch (err) {
+    const error = err as Error;
+    console.error('Chat error:', error);
+    return c.json({ error: error.message }, 500);
   }
 });
 
@@ -174,5 +178,7 @@ serve({
   fetch: app.fetch,
   port
 }, (info) => {
-  console.log(`\\nbethainy container running on port ${info.port}\\n`);
+  console.log('');
+  console.log('bethainy container running on port ' + info.port);
+  console.log('');
 });
