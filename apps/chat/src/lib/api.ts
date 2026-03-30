@@ -34,17 +34,17 @@ class Api {
   }
 
   // Auth
-  async signup(email: string, password: string, name?: string) {
+  async signup(email: string, name: string, pin: string) {
     return this.request('/users/signup', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, name, pin }),
     });
   }
 
-  async login(email: string, password: string) {
+  async login(email: string, pin: string) {
     return this.request('/users/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, pin }),
     });
   }
 
