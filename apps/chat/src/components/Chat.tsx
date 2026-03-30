@@ -162,14 +162,13 @@ export function Chat({ token, onLogout }: ChatProps) {
   const handleInputFocus = () => setInputFocused(true);
   const handleInputBlur = () => setInputFocused(false);
 
-  // Prevent blur when tapping toolbar buttons
   const handleToolbarMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
   };
 
   if (containerState === "waking") {
     return (
-      <div className="h-full flex flex-col">
+      <div className="chat-wrapper">
         <div className="h-12 flex-shrink-0"></div>
         <div className="flex-1 overflow-hidden">
           <WakeUpAnimation onAwake={handleWakeComplete} />
@@ -180,14 +179,14 @@ export function Chat({ token, onLogout }: ChatProps) {
 
   if (containerState === "checking") {
     return (
-      <div className="h-full flex flex-col items-center justify-center">
+      <div className="chat-wrapper items-center justify-center">
         <div className="text-gray-400">Checking in...</div>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="chat-wrapper">
       {/* Ghost header for iOS */}
       <div className="h-12 flex-shrink-0"></div>
 
@@ -220,7 +219,6 @@ export function Chat({ token, onLogout }: ChatProps) {
 
       {/* Input Area */}
       <div className="flex-shrink-0 p-4 border-t border-white/10 bg-surface">
-        {/* Toolbar - shows when keyboard is focused */}
         {inputFocused && (
           <div 
             className="flex justify-between items-center mb-3 px-1"
