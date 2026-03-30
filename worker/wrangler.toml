@@ -28,5 +28,6 @@ enabled = true
 
 [vars]
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
+WORKER_URL = "https://bethainy.micaiah-tasks.workers.dev"
 
 # Set these via: wrangler secret put ANTHROPIC_API_KEY
