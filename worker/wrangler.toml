@@ -5,7 +5,7 @@ compatibility_date = "2024-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "bethainy"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "984ed5e0-5f65-44d0-b058-2fe97399166e"
 
 [vars]
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
