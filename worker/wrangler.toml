@@ -1,13 +1,32 @@
 name = "bethainy"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+compatibility_date = "2026-01-20"
 
+# D1 Database
 [[d1_databases]]
 binding = "DB"
 database_name = "bethainy"
 database_id = "984ed5e0-5f65-44d0-b058-2fe97399166e"
 
+# Container configuration
+[[containers]]
+class_name = "BethainyContainer"
+image = "../container/Dockerfile"
+max_instances = 3
+instance_type = "basic"  # 1/4 vCPU, 1GB RAM
+
+[[durable_objects.bindings]]
+name = "BETHAINY_CONTAINER"
+class_name = "BethainyContainer"
+
+[[migrations]]
+new_sqlite_classes = ["BethainyContainer"]
+tag = "v1"
+
+[observability]
+enabled = true
+
 [vars]
-CLAUDE_MODEL = "claude-opus-4-20250514"
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
 
 # Set these via: wrangler secret put ANTHROPIC_API_KEY

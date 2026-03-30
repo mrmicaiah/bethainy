@@ -1,6 +1,6 @@
 {
   "name": "bethainy-api",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
@@ -9,6 +9,7 @@
     "db:migrate": "wrangler d1 execute bethainy --file=../schema/001_initial.sql"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.1.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {
