@@ -15,7 +15,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 // CORS for frontend
 app.use('/*', cors({
-  origin: ['http://localhost:3000', 'https://bethainy.pages.dev'],
+  origin: '*',
   credentials: true,
 }));
 
