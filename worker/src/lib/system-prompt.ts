@@ -6,42 +6,24 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
     'SELECT * FROM users WHERE id = ?'
   ).bind(userId).first();
   
-  // Get all system docs for this user
-  const systemDocs = await db.prepare(
-    'SELECT * FROM system_docs WHERE user_id = ?'
-  ).bind(userId).all();
+  // Get core instructions only
+  const instructions = await db.prepare(
+    'SELECT content FROM system_docs WHERE id = ? AND user_id = ?'
+  ).bind('instructions', userId).first();
   
-  // Get user's modes WITH instructions
-  const modes = await db.prepare(
-    'SELECT * FROM modes WHERE user_id = ?'
-  ).bind(userId).all();
-  
-  // Get active tracks with full data
+  // Get active tracks (summary only)
   const tracks = await db.prepare(
-    `SELECT * FROM tracks WHERE user_id = ? AND status = 'active'`
-  ).bind(userId).all();
-  
-  // Get recent entries for context
-  const recentEntries = await db.prepare(
-    'SELECT * FROM entries WHERE user_id = ? ORDER BY created_at DESC LIMIT 10'
+    `SELECT id, name, mode_id, situation, progress FROM tracks WHERE user_id = ? AND status = 'active'`
   ).bind(userId).all();
   
   // Get open daily notes
   const dailyNotes = await db.prepare(
-    `SELECT * FROM daily_notes WHERE user_id = ? AND status = 'open'`
+    `SELECT task FROM daily_notes WHERE user_id = ? AND status = 'open' LIMIT 5`
   ).bind(userId).all();
 
   const today = new Date().toISOString().split('T')[0];
   const userName = user?.name || 'friend';
   
-  // Parse system docs
-  const instructions = systemDocs.results.find((d: any) => d.id === 'instructions');
-  const modeSystem = systemDocs.results.find((d: any) => d.id === 'mode-system');
-  const creatingModes = systemDocs.results.find((d: any) => d.id === 'creating-modes');
-  const workoutPlan = systemDocs.results.find((d: any) => d.id === 'workout-plan');
-  const dietPlan = systemDocs.results.find((d: any) => d.id === 'diet-plan');
-  
-  // Build prompt
   let prompt = `# bethainy
 
 Today: ${today}
@@ -51,99 +33,46 @@ User: ${userName}
 
   // Core instructions
   if (instructions?.content) {
-    prompt += instructions.content + '\n\n';
+    prompt += (instructions as any).content + '\n\n';
+  } else {
+    prompt += `You are a life assistant. Detect context, help naturally, save important info using tools.\n\n`;
   }
 
-  // Mode system architecture
-  if (modeSystem?.content) {
-    prompt += `---\n\n## Mode System Reference\n\n${modeSystem.content}\n\n`;
-  }
-
-  // Creating modes guide
-  if (creatingModes?.content) {
-    prompt += `---\n\n## Creating New Modes\n\n${creatingModes.content}\n\n`;
-  }
-
-  // All mode instructions
-  prompt += `---\n\n## Mode Instructions\n\n`;
-  for (const mode of modes.results as any[]) {
-    if (mode.instructions) {
-      prompt += `### ${mode.name}\n${mode.instructions}\n\n`;
-    }
-  }
-
-  // Reference docs (workout plan, diet plan)
-  if (workoutPlan?.content || dietPlan?.content) {
-    prompt += `---\n\n## Reference Data\n\n`;
-    if (workoutPlan?.content) {
-      prompt += `### Workout Plan\n${workoutPlan.content}\n\n`;
-    }
-    if (dietPlan?.content) {
-      prompt += `### Diet Plan\n${dietPlan.content}\n\n`;
-    }
-  }
-
-  // Active tracks with their data
-  prompt += `---\n\n## Active Tracks\n\n`;
+  // Active tracks summary
   if (tracks.results.length > 0) {
+    prompt += `## Active Tracks\n`;
     for (const track of tracks.results as any[]) {
       const modeName = track.mode_id.split('_').pop();
-      prompt += `### ${track.name} (${modeName})\n`;
-      
-      if (track.plan) {
-        prompt += `**Plan:** ${JSON.stringify(JSON.parse(track.plan))}\n`;
-      }
-      if (track.progress) {
-        prompt += `**Progress:** ${JSON.stringify(JSON.parse(track.progress))}\n`;
-      }
-      if (track.preferences) {
-        prompt += `**Preferences:** ${JSON.stringify(JSON.parse(track.preferences))}\n`;
-      }
+      let line = `- ${track.name} (${modeName})`;
       if (track.situation) {
-        const situation = JSON.parse(track.situation);
-        prompt += `**Situation:** ${situation.current || 'none'}${situation.since ? ` (since ${situation.since})` : ''}\n`;
+        const sit = JSON.parse(track.situation);
+        if (sit.current) line += ` — ${sit.current}`;
       }
-      if (track.profile) {
-        prompt += `**Profile:** ${JSON.stringify(JSON.parse(track.profile))}\n`;
-      }
-      prompt += '\n';
+      prompt += line + '\n';
     }
-  } else {
-    prompt += 'No active tracks yet.\n\n';
+    prompt += '\n';
   }
 
   // Open tasks
   if (dailyNotes.results.length > 0) {
-    prompt += `---\n\n## Open Tasks\n\n`;
+    prompt += `## Open Tasks\n`;
     for (const note of dailyNotes.results as any[]) {
-      prompt += `- ${note.task}\n`;
+      prompt += `- ${(note as any).task}\n`;
     }
     prompt += '\n';
   }
 
-  // Recent activity
-  if (recentEntries.results.length > 0) {
-    prompt += `---\n\n## Recent Activity\n\n`;
-    for (const entry of recentEntries.results.slice(0, 5) as any[]) {
-      const data = entry.data ? JSON.parse(entry.data) : {};
-      prompt += `- ${entry.date}: ${entry.type}`;
-      if (data.day_type) prompt += ` (${data.day_type})`;
-      if (data.notes) prompt += ` — ${data.notes}`;
-      prompt += '\n';
-    }
-    prompt += '\n';
-  }
+  // Tools and mode loading instruction
+  prompt += `## Tools
 
-  // Tools
-  prompt += `---\n\n## Tools
-
-Use these to read and write data:
+You have tools to read and write data:
 - get_tracks, get_track, create_track, update_track
 - create_entry, get_entries  
 - add_daily_note, complete_daily_note
 - get_daily_plan, update_daily_plan
+- **get_mode_instructions** — call this to load specific mode instructions when you detect a context
 
-**Don't just acknowledge — use tools to save data.**
+When you detect a context (gym, eating, person, project, etc.), use get_mode_instructions to load that mode's full instructions, then follow them.
 `;
 
   return prompt;
