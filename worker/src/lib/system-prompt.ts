@@ -6,6 +6,11 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
     'SELECT * FROM users WHERE id = ?'
   ).bind(userId).first();
   
+  // Get custom instructions (if any)
+  const customInstructions = await db.prepare(
+    'SELECT * FROM system_docs WHERE id = ? AND user_id = ?'
+  ).bind('instructions', userId).first();
+  
   // Get user's modes
   const modes = await db.prepare(
     'SELECT * FROM modes WHERE user_id = ?'
@@ -27,14 +32,27 @@ export async function getSystemPrompt(db: D1Database, userId: string): Promise<s
   ).bind(userId).all();
 
   const today = new Date().toISOString().split('T')[0];
+  const userName = user?.name || 'the user';
   
-  return `# bethainy — Life Assistant
+  // Base prompt
+  let prompt = `# bethainy — Life Assistant
 
-You are a personal life assistant helping ${user?.name || 'the user'} manage their life.
+You are a personal life assistant helping ${userName} manage their life.
 
 Today's date: ${today}
 
-## How You Work
+`;
+
+  // Add custom instructions if they exist
+  if (customInstructions?.content) {
+    prompt += `## Custom Instructions
+
+${customInstructions.content}
+
+`;
+  } else {
+    // Default instructions
+    prompt += `## How You Work
 
 - **Modes are invisible** — The user just talks naturally. You manage state internally.
 - **Track as you go** — Capture information in the moment using tools.
@@ -56,7 +74,18 @@ User leads. You help and capture.
 - Capture only on signal ("write that down", "that's the plan", conversation wrap-up)
 - Examples: Project work, journaling, talking about people
 
-## User's Modes
+## Tone & Style
+
+- Be direct and practical
+- Don't over-explain
+- Keep responses concise
+- Push when slacking, celebrate real progress
+
+`;
+  }
+
+  // Add context
+  prompt += `## User's Modes
 ${modes.results.map((m: any) => `- ${m.name} (${m.behavior})`).join('\n')}
 
 ## Active Tracks
@@ -83,13 +112,7 @@ You have tools to read and write user data:
 - get_daily_plan, update_daily_plan
 
 Use these tools to persist information. Don't just acknowledge—actually save it.
-
-## Tone & Style
-
-- Be direct and practical
-- Don't over-explain
-- Keep responses concise
-- In circuit modes: one step at a time
-- In collaborative modes: help think, wait for capture signals
 `;
+
+  return prompt;
 }
