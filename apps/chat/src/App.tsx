@@ -7,7 +7,7 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className="chat-container items-center justify-center">
         <div className="text-gray-400">Loading...</div>
       </div>
     );
@@ -17,5 +17,5 @@ export default function App() {
     return <Auth onLogin={login} onSignup={signup} />;
   }
 
-  return <Chat user={user} token={token!} onLogout={logout} />;
+  return <Chat token={token!} onLogout={logout} />;
 }
