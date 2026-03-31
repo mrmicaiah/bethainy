@@ -140,9 +140,10 @@ app.post('/chat/message', async (c) => {
       if (connected) {
         for (const action of data.calendarActions) {
           try {
-            console.log('Calendar action:', action.type);
+            console.log('Calendar action:', action.type, JSON.stringify(action));
             if (action.type === 'create') {
-              await calendar.createEvent(action.event);
+              const result = await calendar.createEvent(action.event);
+              console.log('Event created:', result.id);
             } else if (action.type === 'update') {
               await calendar.updateEvent(action.eventId, action.updates);
             } else if (action.type === 'delete') {
@@ -207,6 +208,91 @@ app.get('/chat/calendar/debug', async (c) => {
     tokenExists: !!result,
     tokenData: result 
   });
+});
+
+// NEW: Debug endpoint to test fetching events
+app.get('/chat/calendar/events', async (c) => {
+  const userId = c.get('userId');
+  
+  try {
+    const calendar = new GoogleCalendar(c.env as any, userId);
+    const connected = await calendar.loadTokens();
+    
+    if (!connected) {
+      return c.json({ error: 'Not connected' });
+    }
+    
+    const today = new Date().toISOString().split('T')[0];
+    let todayEvents: any[] = [];
+    let upcomingEvents: any[] = [];
+    let errors: string[] = [];
+    
+    try {
+      todayEvents = await calendar.getEventsForDay(today);
+    } catch (e: any) {
+      errors.push('Today events: ' + e.message);
+    }
+    
+    try {
+      upcomingEvents = await calendar.getUpcomingEvents(10);
+    } catch (e: any) {
+      errors.push('Upcoming events: ' + e.message);
+    }
+    
+    return c.json({
+      connected: true,
+      today,
+      todayEvents,
+      upcomingEvents,
+      errors
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message });
+  }
+});
+
+// NEW: Debug endpoint to test creating an event
+app.post('/chat/calendar/test-create', async (c) => {
+  const userId = c.get('userId');
+  
+  try {
+    const calendar = new GoogleCalendar(c.env as any, userId);
+    const connected = await calendar.loadTokens();
+    
+    if (!connected) {
+      return c.json({ error: 'Not connected' });
+    }
+    
+    // Create a test event for tomorrow at noon
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(12, 0, 0, 0);
+    
+    const endTime = new Date(tomorrow);
+    endTime.setHours(13, 0, 0, 0);
+    
+    const event = {
+      summary: 'Test Event from BethAiny',
+      start: { 
+        dateTime: tomorrow.toISOString(),
+        timeZone: 'America/Chicago'
+      },
+      end: { 
+        dateTime: endTime.toISOString(),
+        timeZone: 'America/Chicago'
+      }
+    };
+    
+    const result = await calendar.createEvent(event);
+    
+    return c.json({
+      success: true,
+      eventId: result.id,
+      event: result
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message });
+  }
 });
 
 export default app;
