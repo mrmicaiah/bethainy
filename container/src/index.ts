@@ -25,38 +25,83 @@ async function loadCoreInstructions() {
   }
 }
 
-function getTimeContext(): { date: string; time: string; timeOfDay: string; today: string; yesterday: string } {
+function getTimeContext(): { date: string; time: string; timeOfDay: string; today: string; yesterday: string; dayOfWeek: string } {
+  // Get current time in Chicago timezone properly
   const now = new Date();
-  const localNow = new Date(now.toLocaleString("en-US", { timeZone: USER_TIMEZONE }));
   
-  const hour = localNow.getHours();
-  let timeOfDay = "morning";
-  if (hour >= 12 && hour < 17) timeOfDay = "afternoon";
-  else if (hour >= 17) timeOfDay = "evening";
-  
-  const dateStr = localNow.toLocaleDateString("en-US", {
+  // Format for Chicago timezone
+  const chicagoFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: USER_TIMEZONE,
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric"
   });
   
-  const timeStr = localNow.toLocaleTimeString("en-US", {
+  const chicagoTimeFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: USER_TIMEZONE,
     hour: "numeric",
     minute: "2-digit",
     hour12: true
   });
   
-  const today = localNow.toISOString().split("T")[0];
-  const yesterday = new Date(localNow);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const chicagoDateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: USER_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "numeric"
+  }).formatToParts(now);
+  
+  // Extract parts
+  const year = chicagoDateParts.find(p => p.type === "year")?.value || "2026";
+  const month = chicagoDateParts.find(p => p.type === "month")?.value || "01";
+  const day = chicagoDateParts.find(p => p.type === "day")?.value || "01";
+  const hour = parseInt(chicagoDateParts.find(p => p.type === "hour")?.value || "12");
+  
+  const today = `${year}-${month}-${day}`;
+  
+  // Calculate yesterday
+  const yesterdayDate = new Date(now);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: USER_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(yesterdayDate);
+  
+  const yYear = yesterdayParts.find(p => p.type === "year")?.value || "2026";
+  const yMonth = yesterdayParts.find(p => p.type === "month")?.value || "01";
+  const yDay = yesterdayParts.find(p => p.type === "day")?.value || "01";
+  const yesterday = `${yYear}-${yMonth}-${yDay}`;
+  
+  // Time of day
+  let timeOfDay = "morning";
+  if (hour >= 12 && hour < 17) timeOfDay = "afternoon";
+  else if (hour >= 17 || hour < 5) timeOfDay = "evening";
+  
+  // Day of week
+  const dayOfWeek = new Intl.DateTimeFormat("en-US", {
+    timeZone: USER_TIMEZONE,
+    weekday: "long"
+  }).format(now);
+  
+  const dateStr = chicagoFormatter.format(now);
+  const timeStr = chicagoTimeFormatter.format(now);
+  
+  console.log("Time context - Now (UTC):", now.toISOString());
+  console.log("Time context - Chicago date:", dateStr);
+  console.log("Time context - Today:", today);
+  console.log("Time context - Day of week:", dayOfWeek);
   
   return {
     date: dateStr,
     time: timeStr,
     timeOfDay,
     today,
-    yesterday: yesterday.toISOString().split("T")[0]
+    yesterday,
+    dayOfWeek
   };
 }
 
@@ -104,7 +149,7 @@ function formatCalendarEvent(event: any): string {
   if (event.start?.dateTime) {
     const startDate = new Date(event.start.dateTime);
     const endDate = new Date(event.end.dateTime);
-    timeStr = `${startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+    timeStr = `${startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: USER_TIMEZONE })} - ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: USER_TIMEZONE })}`;
   } else {
     timeStr = "All day";
   }
@@ -117,10 +162,10 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   
   prompt += "\n\n---\n\n";
   prompt += "## Current Context\n\n";
-  prompt += "- **Date**: " + timeCtx.date + "\n";
-  prompt += "- **Time**: " + timeCtx.time + " (" + timeCtx.timeOfDay + ")\n";
-  prompt += "- **Today's date for files**: " + timeCtx.today + "\n";
-  prompt += "- **Yesterday's date for files**: " + timeCtx.yesterday + "\n";
+  prompt += "- **Today is**: " + timeCtx.dayOfWeek + ", " + timeCtx.date + "\n";
+  prompt += "- **Current time**: " + timeCtx.time + " (" + timeCtx.timeOfDay + ")\n";
+  prompt += "- **Today's date (ISO)**: " + timeCtx.today + "\n";
+  prompt += "- **Yesterday's date (ISO)**: " + timeCtx.yesterday + "\n";
   prompt += "- **Active mode**: " + mode + "\n";
   
   // Calendar context - ALWAYS include this section
@@ -142,7 +187,7 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
       prompt += "\n**Upcoming Events**:\n";
       for (const event of calendarContext.upcomingEvents) {
         const date = new Date(event.start?.dateTime || event.start?.date);
-        prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})\n`;
+        prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: USER_TIMEZONE })})\n`;
       }
     }
   } else {
@@ -192,10 +237,10 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   return prompt;
 }
 
-// Container version: v2 - force rebuild
+// Container version: v3 - fixed timezone
 console.log("");
 console.log("========================================");
-console.log("BethAiny container v2 starting...");
+console.log("BethAiny container v3 starting...");
 console.log("========================================");
 console.log("");
 
@@ -203,8 +248,8 @@ await loadCoreInstructions();
 
 app.use("/*", cors({ origin: "*" }));
 
-app.get("/", (c) => c.json({ status: "awake", version: "v2", uptime: process.uptime() }));
-app.get("/wake", (c) => c.json({ status: "ready", version: "v2", timestamp: Date.now() }));
+app.get("/", (c) => c.json({ status: "awake", version: "v3", uptime: process.uptime() }));
+app.get("/wake", (c) => c.json({ status: "ready", version: "v3", timestamp: Date.now() }));
 
 app.post("/message", async (c) => {
   const startTime = Date.now();
@@ -292,6 +337,6 @@ const port = parseInt(process.env.PORT || "8080");
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log("");
-  console.log("BethAiny container v2 running on port " + info.port);
+  console.log("BethAiny container v3 running on port " + info.port);
   console.log("");
 });
