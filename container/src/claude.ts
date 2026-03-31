@@ -1,5 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GitHubClient } from "./github.js";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY
@@ -12,162 +11,95 @@ export interface Message {
   content: string;
 }
 
-// GitHub-based tools - Claude can read/write any file
-const tools: Anthropic.Tool[] = [
-  {
-    name: "read_file",
-    description: "Read a file from the users data folder. Returns file content or null if not found.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { 
-          type: "string", 
-          description: "File path relative to user folder (e.g. daily/notes.json or fitness/meals/2026-03-30.json)" 
-        }
-      },
-      required: ["path"]
-    }
-  },
-  {
-    name: "write_file",
-    description: "Write or create a file in the users data folder. Creates directories as needed.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { 
-          type: "string", 
-          description: "File path relative to user folder" 
-        },
-        content: { 
-          type: "string", 
-          description: "File content (JSON should be stringified)" 
-        }
-      },
-      required: ["path", "content"]
-    }
-  },
-  {
-    name: "list_files",
-    description: "List files in a directory in the users data folder.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        path: { 
-          type: "string", 
-          description: "Directory path relative to user folder (e.g. fitness/workouts or people/tracks)" 
-        }
-      },
-      required: ["path"]
-    }
-  }
-];
+export interface SaveInstruction {
+  path: string;
+  content: any;
+}
 
-async function executeTool(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  github: GitHubClient
-): Promise<string> {
-  console.log("Executing tool:", toolName, JSON.stringify(toolInput).substring(0, 200));
-  
-  try {
-    switch (toolName) {
-      case "read_file": {
-        const file = await github.getFile(toolInput.path as string);
-        if (file) {
-          return file.content;
-        } else {
-          return "File not found: " + toolInput.path;
-        }
-      }
-      
-      case "write_file": {
-        await github.putFile(toolInput.path as string, toolInput.content as string);
-        return "Saved: " + toolInput.path;
-      }
-      
-      case "list_files": {
-        const files = await github.listDir(toolInput.path as string);
-        if (files.length === 0) {
-          return "No files in: " + toolInput.path;
-        }
-        return files.join("\n");
-      }
-      
-      default:
-        return "Unknown tool: " + toolName;
-    }
-  } catch (err) {
-    const error = err as Error;
-    console.error("Tool error:", toolName, error);
-    return "Error: " + error.message;
-  }
+export interface ChatResponse {
+  message: string;
+  saves: SaveInstruction[];
 }
 
 export async function chat(
   systemPrompt: string,
-  messages: Message[],
-  github: GitHubClient
-): Promise<string> {
-  let response = await anthropic.messages.create({
+  messages: Message[]
+): Promise<ChatResponse> {
+  
+  // Ask Claude to respond with structured output
+  const structuredPrompt = systemPrompt + `
+
+---
+
+## Response Format
+
+You must respond with valid JSON in this exact format:
+
+\`\`\`json
+{
+  "message": "Your response to the user (plain text, conversational)",
+  "saves": [
+    {
+      "path": "relative/path/to/file.json",
+      "content": { ... }
+    }
+  ]
+}
+\`\`\`
+
+- "message" is what the user sees
+- "saves" is an array of files to save (can be empty [])
+- Always respond with this JSON structure, nothing else
+- Do not include markdown code fences in your actual response - just raw JSON
+`;
+
+  const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
-    system: systemPrompt,
-    tools: tools,
+    system: structuredPrompt,
     messages: messages.map(m => ({
       role: m.role,
       content: m.content
     }))
   });
   
-  let currentMessages: Anthropic.MessageParam[] = messages.map(m => ({
-    role: m.role,
-    content: m.content
-  }));
-  
-  let iterations = 0;
-  const maxIterations = 10;
-  
-  while (response.stop_reason === "tool_use" && iterations < maxIterations) {
-    iterations++;
-    
-    const toolUseBlocks = response.content.filter(
-      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-    );
-    
-    currentMessages.push({
-      role: "assistant",
-      content: response.content
-    });
-    
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    
-    for (const toolUse of toolUseBlocks) {
-      const result = await executeTool(toolUse.name, toolUse.input as Record<string, unknown>, github);
-      
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: result
-      });
-    }
-    
-    currentMessages.push({
-      role: "user",
-      content: toolResults
-    });
-    
-    response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      system: systemPrompt,
-      tools: tools,
-      messages: currentMessages
-    });
-  }
-  
+  // Extract text
   const textBlock = response.content.find(
     (block): block is Anthropic.TextBlock => block.type === "text"
   );
   
-  return textBlock?.text || "I had trouble responding. Try again?";
+  const rawText = textBlock?.text || "";
+  
+  // Parse JSON response
+  try {
+    // Try to extract JSON from the response
+    let jsonStr = rawText.trim();
+    
+    // Remove markdown code fences if present
+    if (jsonStr.startsWith("```json")) {
+      jsonStr = jsonStr.slice(7);
+    } else if (jsonStr.startsWith("```")) {
+      jsonStr = jsonStr.slice(3);
+    }
+    if (jsonStr.endsWith("```")) {
+      jsonStr = jsonStr.slice(0, -3);
+    }
+    jsonStr = jsonStr.trim();
+    
+    const parsed = JSON.parse(jsonStr);
+    
+    return {
+      message: parsed.message || rawText,
+      saves: Array.isArray(parsed.saves) ? parsed.saves : []
+    };
+  } catch (err) {
+    // If parsing fails, return raw text with no saves
+    console.error("Failed to parse Claude response as JSON:", err);
+    console.error("Raw response:", rawText.substring(0, 500));
+    
+    return {
+      message: rawText,
+      saves: []
+    };
+  }
 }
