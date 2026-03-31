@@ -27,7 +27,7 @@ tag = "v1"
 enabled = true
 
 [vars]
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL = "claude-sonnet-4-20250514"
 DATA_REPO = "mrmicaiah/bethainy-data"
 
 # Set these via: 
