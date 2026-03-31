@@ -17,16 +17,14 @@ interface UserCache {
   yesterdaysMeals: any;
   recentWorkout: any;
   bodyComposition: any;
+  // Lists
+  activeList: any;
 }
 
-// In-memory cache - survives until container sleeps
 const cache: Map<string, UserCache> = new Map();
-
-// Pending writes - batched and sent async
 const pendingWrites: Map<string, Array<{ path: string; content: string }>> = new Map();
 
 export async function getUserData(userId: string, github: GitHubClient, today: string, yesterday: string): Promise<UserCache> {
-  // Check cache first
   const cached = cache.get(userId);
   if (cached && cached.loaded) {
     console.log("Cache hit for user:", userId);
@@ -36,7 +34,6 @@ export async function getUserData(userId: string, github: GitHubClient, today: s
   console.log("Loading user data into cache:", userId);
   const startTime = Date.now();
   
-  // Load all relevant data in parallel
   const [
     dietPlan,
     workoutPlan,
@@ -44,7 +41,8 @@ export async function getUserData(userId: string, github: GitHubClient, today: s
     todaysMeals,
     yesterdaysMeals,
     recentWorkout,
-    bodyComposition
+    bodyComposition,
+    activeList
   ] = await Promise.all([
     github.getDietPlan().catch(() => ""),
     github.getWorkoutPlan().catch(() => ""),
@@ -52,7 +50,8 @@ export async function getUserData(userId: string, github: GitHubClient, today: s
     github.getMeals(today).catch(() => null),
     github.getMeals(yesterday).catch(() => null),
     github.getWorkout(today).catch(() => null),
-    github.getBodyComposition(today).catch(() => null)
+    github.getBodyComposition(today).catch(() => null),
+    github.getActiveList().catch(() => null)
   ]);
   
   const userData: UserCache = {
@@ -64,7 +63,8 @@ export async function getUserData(userId: string, github: GitHubClient, today: s
     todaysMeals,
     yesterdaysMeals,
     recentWorkout,
-    bodyComposition
+    bodyComposition,
+    activeList
   };
   
   cache.set(userId, userData);
@@ -93,10 +93,8 @@ export async function flushWrites(userId: string, github: GitHubClient): Promise
   
   console.log("Flushing", writes.length, "pending writes for user:", userId);
   
-  // Clear the queue immediately (so new writes during flush don't get lost)
   pendingWrites.set(userId, []);
   
-  // Write all in parallel
   await Promise.all(
     writes.map(({ path, content }) => 
       github.putFile(path, content).catch(err => 
