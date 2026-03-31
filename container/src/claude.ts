@@ -52,12 +52,7 @@ You must respond with valid JSON in this exact format:
 
 {
   "message": "Your response to the user (plain text, conversational)",
-  "saves": [
-    {
-      "path": "relative/path/to/file.json",
-      "content": { ... }
-    }
-  ],
+  "saves": [],
   "listMode": false,
   "calendarActions": [],
   "connectCalendar": false
@@ -71,88 +66,83 @@ You must respond with valid JSON in this exact format:
 
 ### Calendar Actions
 
-To create an event:
+To create an event, put this in calendarActions:
 {
   "type": "create",
   "event": {
     "summary": "Event title",
-    "start": { "dateTime": "2026-03-31T14:00:00-05:00", "timeZone": "America/Chicago" },
-    "end": { "dateTime": "2026-03-31T15:00:00-05:00", "timeZone": "America/Chicago" },
-    "description": "Optional description",
-    "location": "Optional location"
+    "start": { "dateTime": "2026-04-01T08:00:00-05:00", "timeZone": "America/Chicago" },
+    "end": { "dateTime": "2026-04-01T09:00:00-05:00", "timeZone": "America/Chicago" }
   }
 }
 
-For all-day events, use "date" instead of "dateTime":
-{
-  "type": "create",
-  "event": {
-    "summary": "All day event",
-    "start": { "date": "2026-03-31" },
-    "end": { "date": "2026-04-01" }
-  }
-}
-
-### Connecting Calendar
-
-When the user wants to connect their calendar and it's NOT already connected:
-- Set "connectCalendar": true
-- In your message, say something like "Let me get you connected. A link should appear below."
-
-The frontend will handle showing the OAuth link.
-
-Always respond with valid JSON, nothing else.
-Do not wrap in markdown code fences.
+IMPORTANT: Always respond with valid JSON only. No markdown, no explanation, just the JSON object.
 `;
 
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4096,
-    system: structuredPrompt,
-    messages: messages.map(m => ({
-      role: m.role,
-      content: m.content
-    }))
-  });
-  
-  const textBlock = response.content.find(
-    (block): block is Anthropic.TextBlock => block.type === "text"
-  );
-  
-  const rawText = textBlock?.text || "";
-  
   try {
-    let jsonStr = rawText.trim();
+    console.log("Calling Anthropic API...");
     
-    if (jsonStr.startsWith("```json")) {
-      jsonStr = jsonStr.slice(7);
-    } else if (jsonStr.startsWith("```")) {
-      jsonStr = jsonStr.slice(3);
+    const response = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      system: structuredPrompt,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content
+      }))
+    });
+    
+    console.log("Anthropic API response received");
+    
+    const textBlock = response.content.find(
+      (block): block is Anthropic.TextBlock => block.type === "text"
+    );
+    
+    const rawText = textBlock?.text || "";
+    console.log("Raw response length:", rawText.length);
+    console.log("Raw response preview:", rawText.substring(0, 200));
+    
+    try {
+      let jsonStr = rawText.trim();
+      
+      // Remove markdown code fences if present
+      if (jsonStr.startsWith("```json")) {
+        jsonStr = jsonStr.slice(7);
+      } else if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.slice(3);
+      }
+      if (jsonStr.endsWith("```")) {
+        jsonStr = jsonStr.slice(0, -3);
+      }
+      jsonStr = jsonStr.trim();
+      
+      const parsed = JSON.parse(jsonStr);
+      
+      console.log("JSON parsed successfully");
+      console.log("Calendar actions:", parsed.calendarActions?.length || 0);
+      
+      return {
+        message: parsed.message || rawText,
+        saves: Array.isArray(parsed.saves) ? parsed.saves : [],
+        listMode: parsed.listMode === true,
+        calendarActions: Array.isArray(parsed.calendarActions) ? parsed.calendarActions : [],
+        connectCalendar: parsed.connectCalendar === true
+      };
+    } catch (parseErr) {
+      console.error("Failed to parse Claude response as JSON:", parseErr);
+      console.error("Full raw response:", rawText);
+      
+      // Return the raw text as the message
+      return {
+        message: rawText || "I had trouble processing that. Could you try again?",
+        saves: [],
+        listMode: false,
+        calendarActions: [],
+        connectCalendar: false
+      };
     }
-    if (jsonStr.endsWith("```")) {
-      jsonStr = jsonStr.slice(0, -3);
-    }
-    jsonStr = jsonStr.trim();
-    
-    const parsed = JSON.parse(jsonStr);
-    
-    return {
-      message: parsed.message || rawText,
-      saves: Array.isArray(parsed.saves) ? parsed.saves : [],
-      listMode: parsed.listMode === true,
-      calendarActions: Array.isArray(parsed.calendarActions) ? parsed.calendarActions : [],
-      connectCalendar: parsed.connectCalendar === true
-    };
-  } catch (err) {
-    console.error("Failed to parse Claude response as JSON:", err);
-    console.error("Raw response:", rawText.substring(0, 500));
-    
-    return {
-      message: rawText,
-      saves: [],
-      listMode: false,
-      calendarActions: [],
-      connectCalendar: false
-    };
+  } catch (apiErr: any) {
+    console.error("Anthropic API error:", apiErr.message || apiErr);
+    throw new Error("Failed to get response from AI: " + (apiErr.message || "Unknown error"));
   }
 }
