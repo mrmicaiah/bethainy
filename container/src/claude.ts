@@ -16,10 +16,24 @@ export interface SaveInstruction {
   content: any;
 }
 
+export interface CalendarAction {
+  type: "create" | "update" | "delete";
+  event?: {
+    summary: string;
+    description?: string;
+    start: { dateTime: string; timeZone?: string } | { date: string };
+    end: { dateTime: string; timeZone?: string } | { date: string };
+    location?: string;
+  };
+  eventId?: string;
+  updates?: any;
+}
+
 export interface ChatResponse {
   message: string;
   saves: SaveInstruction[];
   listMode: boolean;
+  calendarActions: CalendarAction[];
 }
 
 export async function chat(
@@ -43,14 +57,41 @@ You must respond with valid JSON in this exact format:
       "content": { ... }
     }
   ],
-  "listMode": false
+  "listMode": false,
+  "calendarActions": []
 }
 
 - "message" is what the user sees
 - "saves" is an array of files to save (can be empty [])
 - "listMode" is true when you are in list mode, false otherwise
-- Always respond with this JSON structure, nothing else
-- Do not wrap in markdown code fences
+- "calendarActions" is an array of calendar operations (can be empty [])
+
+### Calendar Actions
+
+To create an event:
+{
+  "type": "create",
+  "event": {
+    "summary": "Event title",
+    "start": { "dateTime": "2026-03-31T14:00:00-05:00", "timeZone": "America/Chicago" },
+    "end": { "dateTime": "2026-03-31T15:00:00-05:00", "timeZone": "America/Chicago" },
+    "description": "Optional description",
+    "location": "Optional location"
+  }
+}
+
+For all-day events, use "date" instead of "dateTime":
+{
+  "type": "create",
+  "event": {
+    "summary": "All day event",
+    "start": { "date": "2026-03-31" },
+    "end": { "date": "2026-04-01" }
+  }
+}
+
+Always respond with valid JSON, nothing else.
+Do not wrap in markdown code fences.
 `;
 
   const response = await anthropic.messages.create({
@@ -87,7 +128,8 @@ You must respond with valid JSON in this exact format:
     return {
       message: parsed.message || rawText,
       saves: Array.isArray(parsed.saves) ? parsed.saves : [],
-      listMode: parsed.listMode === true
+      listMode: parsed.listMode === true,
+      calendarActions: Array.isArray(parsed.calendarActions) ? parsed.calendarActions : []
     };
   } catch (err) {
     console.error("Failed to parse Claude response as JSON:", err);
@@ -96,7 +138,8 @@ You must respond with valid JSON in this exact format:
     return {
       message: rawText,
       saves: [],
-      listMode: false
+      listMode: false,
+      calendarActions: []
     };
   }
 }
