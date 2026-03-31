@@ -19,6 +19,7 @@ export interface SaveInstruction {
 export interface ChatResponse {
   message: string;
   saves: SaveInstruction[];
+  listMode: boolean;
 }
 
 export async function chat(
@@ -26,7 +27,6 @@ export async function chat(
   messages: Message[]
 ): Promise<ChatResponse> {
   
-  // Ask Claude to respond with structured output
   const structuredPrompt = systemPrompt + `
 
 ---
@@ -35,7 +35,6 @@ export async function chat(
 
 You must respond with valid JSON in this exact format:
 
-\`\`\`json
 {
   "message": "Your response to the user (plain text, conversational)",
   "saves": [
@@ -43,14 +42,15 @@ You must respond with valid JSON in this exact format:
       "path": "relative/path/to/file.json",
       "content": { ... }
     }
-  ]
+  ],
+  "listMode": false
 }
-\`\`\`
 
 - "message" is what the user sees
 - "saves" is an array of files to save (can be empty [])
+- "listMode" is true when you are in list mode, false otherwise
 - Always respond with this JSON structure, nothing else
-- Do not include markdown code fences in your actual response - just raw JSON
+- Do not wrap in markdown code fences
 `;
 
   const response = await anthropic.messages.create({
@@ -63,19 +63,15 @@ You must respond with valid JSON in this exact format:
     }))
   });
   
-  // Extract text
   const textBlock = response.content.find(
     (block): block is Anthropic.TextBlock => block.type === "text"
   );
   
   const rawText = textBlock?.text || "";
   
-  // Parse JSON response
   try {
-    // Try to extract JSON from the response
     let jsonStr = rawText.trim();
     
-    // Remove markdown code fences if present
     if (jsonStr.startsWith("```json")) {
       jsonStr = jsonStr.slice(7);
     } else if (jsonStr.startsWith("```")) {
@@ -90,16 +86,17 @@ You must respond with valid JSON in this exact format:
     
     return {
       message: parsed.message || rawText,
-      saves: Array.isArray(parsed.saves) ? parsed.saves : []
+      saves: Array.isArray(parsed.saves) ? parsed.saves : [],
+      listMode: parsed.listMode === true
     };
   } catch (err) {
-    // If parsing fails, return raw text with no saves
     console.error("Failed to parse Claude response as JSON:", err);
     console.error("Raw response:", rawText.substring(0, 500));
     
     return {
       message: rawText,
-      saves: []
+      saves: [],
+      listMode: false
     };
   }
 }
