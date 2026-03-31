@@ -63,6 +63,11 @@ function getTimeContext(): { date: string; time: string; timeOfDay: string; toda
 function detectMode(message: string): string {
   const lower = message.toLowerCase();
   
+  // Calendar
+  if (/\b(calendar|schedule|appointment|meeting|event|busy|free time|what's on|what do i have)\b/.test(lower)) {
+    return "calendar";
+  }
+  
   if (/\b(gym|workout|train|exercise|meal|eat|eating|lunch|dinner|breakfast|protein|calories|macros|diet|food|hungry|starving|push day|pull day|leg day|weigh|weight|body fat|muscle)\b/.test(lower)) {
     return "fitness";
   }
@@ -94,7 +99,23 @@ function detectMode(message: string): string {
   return "general";
 }
 
-function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeContext>, userData: any): string {
+function formatCalendarEvent(event: any): string {
+  const start = event.start?.dateTime || event.start?.date;
+  const end = event.end?.dateTime || event.end?.date;
+  
+  let timeStr = "";
+  if (event.start?.dateTime) {
+    const startDate = new Date(event.start.dateTime);
+    const endDate = new Date(event.end.dateTime);
+    timeStr = `${startDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${endDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+  } else {
+    timeStr = "All day";
+  }
+  
+  return `- ${event.summary || "No title"} (${timeStr})`;
+}
+
+function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeContext>, userData: any, calendarContext: any): string {
   let prompt = coreInstructions;
   
   prompt += "\n\n---\n\n";
@@ -104,6 +125,37 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   prompt += "- **Today's date for files**: " + timeCtx.today + "\n";
   prompt += "- **Yesterday's date for files**: " + timeCtx.yesterday + "\n";
   prompt += "- **Active mode**: " + mode + "\n";
+  
+  // Calendar context
+  if (calendarContext) {
+    prompt += "\n\n---\n\n## Google Calendar\n\n";
+    
+    if (calendarContext.connected) {
+      prompt += "**Status**: Connected\n\n";
+      
+      if (calendarContext.todayEvents && calendarContext.todayEvents.length > 0) {
+        prompt += "**Today's Events**:\n";
+        for (const event of calendarContext.todayEvents) {
+          prompt += formatCalendarEvent(event) + "\n";
+        }
+      } else {
+        prompt += "**Today's Events**: None scheduled\n";
+      }
+      
+      if (calendarContext.upcomingEvents && calendarContext.upcomingEvents.length > 0) {
+        prompt += "\n**Upcoming Events**:\n";
+        for (const event of calendarContext.upcomingEvents) {
+          const date = new Date(event.start?.dateTime || event.start?.date);
+          prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})\n`;
+        }
+      }
+      
+      prompt += "\n**Calendar Actions**: You can create, update, or delete events by including a `calendarActions` array in your response.\n";
+    } else {
+      prompt += "**Status**: Not connected\n\n";
+      prompt += "If the user wants to connect their calendar, tell them to say \"connect my calendar\" and you'll provide a link.\n";
+    }
+  }
   
   if (mode === "fitness") {
     if (userData.dietPlan) {
@@ -165,13 +217,14 @@ app.post("/message", async (c) => {
   
   try {
     const body = await c.req.json();
-    const { message, conversationHistory = [] } = body;
+    const { message, conversationHistory = [], calendarContext } = body;
     const userId = c.req.header("X-User-Id") || body.userId;
     
     console.log("");
     console.log("--- New message ---");
     console.log("User:", userId || "unknown");
     console.log("Message:", message.substring(0, 100));
+    console.log("Calendar connected:", calendarContext?.connected || false);
     
     const github = new GitHubClient(userId);
     
@@ -187,7 +240,7 @@ app.post("/message", async (c) => {
     const mode = detectMode(message);
     console.log("Mode:", mode);
     
-    const systemPrompt = buildSystemPrompt(mode, timeCtx, userData);
+    const systemPrompt = buildSystemPrompt(mode, timeCtx, userData, calendarContext);
     console.log("System prompt:", systemPrompt.length, "chars");
     
     const messages = [
@@ -202,6 +255,7 @@ app.post("/message", async (c) => {
     console.log("Response in", duration, "ms");
     console.log("Saves:", response.saves.length);
     console.log("List mode:", response.listMode);
+    console.log("Calendar actions:", response.calendarActions?.length || 0);
     
     if (response.saves.length > 0) {
       for (const save of response.saves) {
@@ -227,6 +281,7 @@ app.post("/message", async (c) => {
       message: response.message,
       mode,
       listMode: response.listMode,
+      calendarActions: response.calendarActions || [],
       timing: { duration }
     });
   } catch (err) {
