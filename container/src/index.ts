@@ -123,33 +123,31 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   prompt += "- **Yesterday's date for files**: " + timeCtx.yesterday + "\n";
   prompt += "- **Active mode**: " + mode + "\n";
   
-  // Calendar context
-  if (calendarContext) {
-    prompt += "\n\n---\n\n## Google Calendar\n\n";
+  // Calendar context - ALWAYS include this section
+  prompt += "\n\n---\n\n## Google Calendar\n\n";
+  
+  if (calendarContext && calendarContext.connected === true) {
+    prompt += "**Status**: Connected ✓\n\n";
     
-    if (calendarContext.connected) {
-      prompt += "**Status**: Connected ✓\n\n";
-      
-      if (calendarContext.todayEvents && calendarContext.todayEvents.length > 0) {
-        prompt += "**Today's Events**:\n";
-        for (const event of calendarContext.todayEvents) {
-          prompt += formatCalendarEvent(event) + "\n";
-        }
-      } else {
-        prompt += "**Today's Events**: None scheduled\n";
-      }
-      
-      if (calendarContext.upcomingEvents && calendarContext.upcomingEvents.length > 0) {
-        prompt += "\n**Upcoming Events**:\n";
-        for (const event of calendarContext.upcomingEvents) {
-          const date = new Date(event.start?.dateTime || event.start?.date);
-          prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})\n`;
-        }
+    if (calendarContext.todayEvents && calendarContext.todayEvents.length > 0) {
+      prompt += "**Today's Events**:\n";
+      for (const event of calendarContext.todayEvents) {
+        prompt += formatCalendarEvent(event) + "\n";
       }
     } else {
-      prompt += "**Status**: Not connected\n\n";
-      prompt += "If the user wants to connect their calendar, set connectCalendar: true in your response.\n";
+      prompt += "**Today's Events**: None scheduled\n";
     }
+    
+    if (calendarContext.upcomingEvents && calendarContext.upcomingEvents.length > 0) {
+      prompt += "\n**Upcoming Events**:\n";
+      for (const event of calendarContext.upcomingEvents) {
+        const date = new Date(event.start?.dateTime || event.start?.date);
+        prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})\n`;
+      }
+    }
+  } else {
+    prompt += "**Status**: Not connected\n\n";
+    prompt += "If the user wants to connect their calendar, set connectCalendar: true in your response.\n";
   }
   
   if (mode === "fitness") {
@@ -194,9 +192,10 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   return prompt;
 }
 
+// Container version: v2 - force rebuild
 console.log("");
 console.log("========================================");
-console.log("BethAiny container starting...");
+console.log("BethAiny container v2 starting...");
 console.log("========================================");
 console.log("");
 
@@ -204,8 +203,8 @@ await loadCoreInstructions();
 
 app.use("/*", cors({ origin: "*" }));
 
-app.get("/", (c) => c.json({ status: "awake", uptime: process.uptime() }));
-app.get("/wake", (c) => c.json({ status: "ready", timestamp: Date.now() }));
+app.get("/", (c) => c.json({ status: "awake", version: "v2", uptime: process.uptime() }));
+app.get("/wake", (c) => c.json({ status: "ready", version: "v2", timestamp: Date.now() }));
 
 app.post("/message", async (c) => {
   const startTime = Date.now();
@@ -219,7 +218,7 @@ app.post("/message", async (c) => {
     console.log("--- New message ---");
     console.log("User:", userId || "unknown");
     console.log("Message:", message.substring(0, 100));
-    console.log("Calendar connected:", calendarContext?.connected || false);
+    console.log("Calendar context received:", JSON.stringify(calendarContext));
     
     const github = new GitHubClient(userId);
     
@@ -237,6 +236,7 @@ app.post("/message", async (c) => {
     
     const systemPrompt = buildSystemPrompt(mode, timeCtx, userData, calendarContext);
     console.log("System prompt:", systemPrompt.length, "chars");
+    console.log("Calendar section included:", systemPrompt.includes("Google Calendar"));
     
     const messages = [
       ...conversationHistory,
@@ -292,6 +292,6 @@ const port = parseInt(process.env.PORT || "8080");
 
 serve({ fetch: app.fetch, port }, (info) => {
   console.log("");
-  console.log("BethAiny container running on port " + info.port);
+  console.log("BethAiny container v2 running on port " + info.port);
   console.log("");
 });
