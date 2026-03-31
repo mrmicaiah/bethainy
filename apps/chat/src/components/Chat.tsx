@@ -6,6 +6,7 @@ import { getThinkingSequence } from "../lib/thinking-phrases";
 interface Message {
   role: "user" | "assistant";
   content: string;
+  connectCalendar?: boolean;
 }
 
 interface ChatProps {
@@ -23,6 +24,7 @@ export function Chat({ token, onLogout }: ChatProps) {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [containerState, setContainerState] = useState<ContainerState>("checking");
   const [inputFocused, setInputFocused] = useState(false);
+  const [connectingCalendar, setConnectingCalendar] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const thinkingIntervalRef = useRef<number | null>(null);
@@ -109,6 +111,21 @@ export function Chat({ token, onLogout }: ChatProps) {
     await pollUntilAwake();
   }, []);
 
+  const handleConnectCalendar = async () => {
+    setConnectingCalendar(true);
+    try {
+      const response = await api.getCalendarConnectUrl();
+      if (response.url) {
+        // Open in new tab
+        window.open(response.url, "_blank");
+      }
+    } catch (err) {
+      console.error("Failed to get calendar connect URL:", err);
+    } finally {
+      setConnectingCalendar(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
     const userMessage = input.trim();
@@ -123,7 +140,11 @@ export function Chat({ token, onLogout }: ChatProps) {
       if (response.conversationId) {
         setConversationId(response.conversationId);
       }
-      setMessages((prev) => [...prev, { role: "assistant", content: response.message }]);
+      setMessages((prev) => [...prev, { 
+        role: "assistant", 
+        content: response.message,
+        connectCalendar: response.connectCalendar || false
+      }]);
     } catch (err: unknown) {
       const error = err as { message?: string; status?: number };
       if (error.message?.includes("waking") || error.status === 503) {
@@ -201,8 +222,23 @@ export function Chat({ token, onLogout }: ChatProps) {
         ) : (
           messages.map((msg, i) => (
             <div key={i} className={"flex " + (msg.role === "user" ? "justify-end" : "justify-start")}>
-              <div className={"max-w-[85%] px-4 py-2 rounded-2xl " + (msg.role === "user" ? "bg-primary text-white" : "bg-surface-light text-gray-100")}>
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+              <div className={"max-w-[85%] " + (msg.role === "user" ? "" : "")}>
+                <div className={"px-4 py-2 rounded-2xl " + (msg.role === "user" ? "bg-primary text-white" : "bg-surface-light text-gray-100")}>
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                </div>
+                {/* Connect Calendar Button */}
+                {msg.connectCalendar && (
+                  <button
+                    onClick={handleConnectCalendar}
+                    disabled={connectingCalendar}
+                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-primary/20 hover:bg-primary/30 text-primary rounded-xl transition-colors text-sm"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                      <path fillRule="evenodd" d="M6.75 2.25A.75.75 0 0 1 7.5 3v1.5h9V3A.75.75 0 0 1 18 3v1.5h.75a3 3 0 0 1 3 3v11.25a3 3 0 0 1-3 3H5.25a3 3 0 0 1-3-3V7.5a3 3 0 0 1 3-3H6V3a.75.75 0 0 1 .75-.75Zm13.5 9a1.5 1.5 0 0 0-1.5-1.5H5.25a1.5 1.5 0 0 0-1.5 1.5v7.5a1.5 1.5 0 0 0 1.5 1.5h13.5a1.5 1.5 0 0 0 1.5-1.5v-7.5Z" clipRule="evenodd" />
+                    </svg>
+                    {connectingCalendar ? "Opening..." : "Connect Google Calendar"}
+                  </button>
+                )}
               </div>
             </div>
           ))
