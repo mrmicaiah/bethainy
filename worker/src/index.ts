@@ -76,37 +76,41 @@ app.post('/chat/message', async (c) => {
     
     console.log('Chat message from user:', userId);
     
-    // Check for Google Calendar connection and get today's events
+    // Build calendar context
     let calendarContext: any = { connected: false };
     
     try {
-      console.log('Checking calendar for user:', userId);
       const calendar = new GoogleCalendar(c.env as any, userId);
       const connected = await calendar.loadTokens();
-      console.log('Calendar connected:', connected);
+      console.log('Calendar tokens loaded:', connected);
       
       if (connected) {
-        const today = new Date().toISOString().split('T')[0];
-        console.log('Fetching events for:', today);
+        // Start with connected: true even if event fetch fails
+        calendarContext = { connected: true, todayEvents: [], upcomingEvents: [] };
         
-        const events = await calendar.getEventsForDay(today);
-        console.log('Today events:', events.length);
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const events = await calendar.getEventsForDay(today);
+          calendarContext.todayEvents = events;
+          console.log('Today events fetched:', events.length);
+        } catch (eventErr: any) {
+          console.error('Failed to fetch today events:', eventErr.message);
+        }
         
-        const upcoming = await calendar.getUpcomingEvents(5);
-        console.log('Upcoming events:', upcoming.length);
-        
-        calendarContext = {
-          connected: true,
-          todayEvents: events,
-          upcomingEvents: upcoming
-        };
+        try {
+          const upcoming = await calendar.getUpcomingEvents(5);
+          calendarContext.upcomingEvents = upcoming;
+          console.log('Upcoming events fetched:', upcoming.length);
+        } catch (eventErr: any) {
+          console.error('Failed to fetch upcoming events:', eventErr.message);
+        }
       }
     } catch (err: any) {
-      console.error('Calendar fetch error:', err.message);
+      console.error('Calendar connection error:', err.message);
       calendarContext = { connected: false, error: err.message };
     }
     
-    console.log('Calendar context:', JSON.stringify(calendarContext));
+    console.log('Final calendarContext:', JSON.stringify(calendarContext));
     
     const container = getContainer(c.env.BETHAINY_CONTAINER);
     
