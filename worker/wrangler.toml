@@ -2,7 +2,7 @@ name = "bethainy"
 main = "src/index.ts"
 compatibility_date = "2026-01-20"
 
-# D1 Database (still used for user auth)
+# D1 Database (user auth + Google tokens)
 [[d1_databases]]
 binding = "DB"
 database_name = "bethainy"
@@ -29,7 +29,10 @@ enabled = true
 [vars]
 CLAUDE_MODEL = "claude-sonnet-4-20250514"
 DATA_REPO = "mrmicaiah/bethainy-data"
+OAUTH_REDIRECT_URI = "https://bethainy.micaiah-tasks.workers.dev/oauth/google/callback"
 
 # Set these via: 
 #   wrangler secret put ANTHROPIC_API_KEY
 #   wrangler secret put GITHUB_TOKEN
+#   wrangler secret put GOOGLE_CLIENT_ID
+#   wrangler secret put GOOGLE_CLIENT_SECRET
