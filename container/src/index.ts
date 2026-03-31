@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { chat } from "./claude.js";
 import { GitHubClient } from "./github.js";
+import { getUserData, queueWrite, flushWrites, updateCache } from "./cache.js";
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -13,7 +14,7 @@ const MODES_DIR = path.join(__dirname, "..", "modes");
 const app = new Hono();
 const USER_TIMEZONE = "America/Chicago";
 
-// Load core instructions once at startup (these are small)
+// Load core instructions once at startup
 let coreInstructions = "";
 
 async function loadCoreInstructions() {
@@ -61,51 +62,34 @@ function getTimeContext(): { date: string; time: string; timeOfDay: string; toda
   };
 }
 
-// Simple mode detection - just keywords, no loading
+// Simple mode detection
 function detectMode(message: string): string {
   const lower = message.toLowerCase();
   
-  // Fitness
   if (/\b(gym|workout|train|exercise|meal|eat|lunch|dinner|breakfast|protein|calories|push day|pull day|leg day)\b/.test(lower)) {
     return "fitness";
   }
-  
-  // Maintenance
   if (/\b(tire|oil change|car|maintenance|repair|filter|brake|battery|mechanic|house|hvac|plumbing|appliance|fix)\b/.test(lower)) {
     return "maintenance";
   }
-  
-  // Shopping
   if (/\b(store|lowe's|lowes|walmart|target|costco|shopping|grocery|buy)\b/.test(lower)) {
     return "shopping";
   }
-  
-  // Money
   if (/\b(spent \$|budget|expense|cost|track spending)\b/.test(lower)) {
     return "money";
   }
-  
-  // Journal
   if (/\b(journal|journaling|reflect)\b/.test(lower)) {
     return "journal";
   }
-  
-  // Faith
   if (/\b(devotional|bible|prayer|quiet time|scripture|spiritual|faith)\b/.test(lower)) {
     return "faith";
   }
-  
-  // Learning
   if (/\b(course|learning|studying|lesson|module|certification|tutorial)\b/.test(lower)) {
     return "learning";
   }
-  
-  // Projects
   if (/\b(working on|project)\b/.test(lower)) {
     return "projects";
   }
-  
-  // Daily (catch-all for greetings and day planning)
   if (/\b(good morning|good afternoon|good evening|what's my day|today|tomorrow)\b/.test(lower)) {
     return "daily";
   }
@@ -113,8 +97,8 @@ function detectMode(message: string): string {
   return "general";
 }
 
-// Build minimal system prompt - just instructions + time context
-function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeContext>): string {
+// Build system prompt with cached data
+function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeContext>, userData: any): string {
   let prompt = coreInstructions;
   
   prompt += "\n\n---\n\n";
@@ -125,23 +109,42 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
   prompt += "- **Yesterday's date for files**: " + timeCtx.yesterday + "\n";
   prompt += "- **Active mode**: " + mode + "\n";
   
-  prompt += "\n---\n\n";
-  prompt += "## File Structure\n\n";
-  prompt += "User data is in their folder. Key paths:\n";
-  prompt += "- `daily/notes.json` - Tasks and notes\n";
-  prompt += "- `fitness/diet-plan.md` - Nutrition plan\n";
-  prompt += "- `fitness/workout-plan.md` - Workout split\n";
-  prompt += "- `fitness/meals/YYYY-MM-DD.json` - Daily meals\n";
-  prompt += "- `fitness/workouts/YYYY-MM-DD.json` - Workout logs\n";
-  prompt += "- `fitness/body-composition/YYYY-MM-DD.json` - Weigh-ins\n";
-  prompt += "- `maintenance/tracks/*.json` - Maintenance items\n";
-  prompt += "- `shopping/tracks/*.json` - Shopping lists\n";
-  prompt += "- `people/tracks/*.json` - People profiles\n";
-  prompt += "- `projects/tracks/*.json` - Project files\n";
-  prompt += "- `money/tracking/*.json` - Expense tracking\n";
-  prompt += "- `journal/entries/*.json` - Journal entries\n";
+  // Include relevant cached data based on mode
+  if (mode === "fitness") {
+    if (userData.dietPlan) {
+      prompt += "\n\n---\n\n## Diet Plan\n\n" + userData.dietPlan;
+    }
+    if (userData.workoutPlan) {
+      prompt += "\n\n---\n\n## Workout Plan\n\n" + userData.workoutPlan;
+    }
+    if (userData.todaysMeals) {
+      prompt += "\n\n---\n\n## Today's Meals\n\n```json\n" + JSON.stringify(userData.todaysMeals, null, 2) + "\n```";
+    }
+    if (userData.yesterdaysMeals) {
+      prompt += "\n\n---\n\n## Yesterday's Meals\n\n```json\n" + JSON.stringify(userData.yesterdaysMeals, null, 2) + "\n```";
+    }
+    if (userData.recentWorkout) {
+      prompt += "\n\n---\n\n## Recent Workout\n\n```json\n" + JSON.stringify(userData.recentWorkout, null, 2) + "\n```";
+    }
+    if (userData.bodyComposition) {
+      prompt += "\n\n---\n\n## Body Composition\n\n```json\n" + JSON.stringify(userData.bodyComposition, null, 2) + "\n```";
+    }
+  }
   
-  prompt += "\n**Use your tools to read files when you need data. Don't guess.**\n";
+  // Daily notes always relevant
+  if (userData.dailyNotes && (userData.dailyNotes.tasks?.length > 0 || userData.dailyNotes.notes?.length > 0)) {
+    prompt += "\n\n---\n\n## Daily Notes\n\n```json\n" + JSON.stringify(userData.dailyNotes, null, 2) + "\n```";
+  }
+  
+  // File paths for saving
+  prompt += "\n\n---\n\n## File Paths for Saving\n\n";
+  prompt += "When you need to save data, use these paths:\n";
+  prompt += "- Daily notes: `daily/notes.json`\n";
+  prompt += "- Today's meals: `fitness/meals/" + timeCtx.today + ".json`\n";
+  prompt += "- Today's workout: `fitness/workouts/" + timeCtx.today + ".json`\n";
+  prompt += "- Maintenance: `maintenance/tracks/{item-name}.json`\n";
+  prompt += "- Shopping: `shopping/tracks/{store-name}.json`\n";
+  prompt += "- People: `people/tracks/{person-name}.json`\n";
   
   return prompt;
 }
@@ -157,20 +160,8 @@ await loadCoreInstructions();
 
 app.use("/*", cors({ origin: "*" }));
 
-app.get("/", (c) => {
-  return c.json({ 
-    status: "awake",
-    uptime: process.uptime()
-  });
-});
-
-app.get("/wake", (c) => {
-  return c.json({ 
-    status: "ready", 
-    timestamp: Date.now(),
-    uptime: process.uptime()
-  });
-});
+app.get("/", (c) => c.json({ status: "awake", uptime: process.uptime() }));
+app.get("/wake", (c) => c.json({ status: "ready", timestamp: Date.now() }));
 
 app.post("/message", async (c) => {
   const startTime = Date.now();
@@ -185,25 +176,28 @@ app.post("/message", async (c) => {
     console.log("User:", userId || "unknown");
     console.log("Message:", message.substring(0, 100));
     
-    // Create GitHub client
+    // GitHub client (for initial load and async writes)
     const github = new GitHubClient(userId);
     
-    // Check if new user (this is the only pre-check we do)
+    // Check if new user
     const userExists = await github.userExists();
     if (!userExists) {
-      console.log("New user, initializing folder...");
+      console.log("New user, initializing...");
       await github.initializeUser();
     }
     
-    // Detect mode (no API calls)
+    // Get time context
+    const timeCtx = getTimeContext();
+    
+    // Get cached user data (loads if not cached)
+    const userData = await getUserData(userId, github, timeCtx.today, timeCtx.yesterday);
+    
+    // Detect mode
     const mode = detectMode(message);
     console.log("Mode:", mode);
     
-    // Get time context (no API calls)
-    const timeCtx = getTimeContext();
-    
-    // Build minimal system prompt (no API calls)
-    const systemPrompt = buildSystemPrompt(mode, timeCtx);
+    // Build system prompt with data included
+    const systemPrompt = buildSystemPrompt(mode, timeCtx, userData);
     console.log("System prompt:", systemPrompt.length, "chars");
     
     // Prepare messages
@@ -212,15 +206,36 @@ app.post("/message", async (c) => {
       { role: "user" as const, content: message }
     ];
     
-    // Call Claude - let IT decide what to fetch
+    // Call Claude (no tools needed - data is in prompt)
     console.log("Calling Claude...");
-    const response = await chat(systemPrompt, messages, github);
+    const response = await chat(systemPrompt, messages);
     
     const duration = Date.now() - startTime;
     console.log("Response in", duration, "ms");
+    console.log("Saves:", response.saves.length);
+    
+    // Queue any saves (async, don't wait)
+    if (response.saves.length > 0) {
+      for (const save of response.saves) {
+        const content = typeof save.content === "string" 
+          ? save.content 
+          : JSON.stringify(save.content, null, 2);
+        queueWrite(userId, save.path, content);
+        
+        // Update cache for meals
+        if (save.path.includes("fitness/meals/" + timeCtx.today)) {
+          updateCache(userId, "todaysMeals", save.content);
+        }
+      }
+      
+      // Flush writes in background (don't await)
+      flushWrites(userId, github).catch(err => 
+        console.error("Background flush failed:", err)
+      );
+    }
     
     return c.json({
-      message: response,
+      message: response.message,
       mode,
       timing: { duration }
     });
@@ -233,10 +248,7 @@ app.post("/message", async (c) => {
 
 const port = parseInt(process.env.PORT || "8080");
 
-serve({
-  fetch: app.fetch,
-  port
-}, (info) => {
+serve({ fetch: app.fetch, port }, (info) => {
   console.log("");
   console.log("BethAiny container running on port " + info.port);
   console.log("");
