@@ -64,7 +64,7 @@ function detectMode(message: string): string {
   const lower = message.toLowerCase();
   
   // Calendar
-  if (/\b(calendar|schedule|appointment|meeting|event|busy|free time|what's on|what do i have)\b/.test(lower)) {
+  if (/\b(calendar|schedule|appointment|meeting|event|busy|free time|what's on|what do i have|connect my calendar)\b/.test(lower)) {
     return "calendar";
   }
   
@@ -100,9 +100,6 @@ function detectMode(message: string): string {
 }
 
 function formatCalendarEvent(event: any): string {
-  const start = event.start?.dateTime || event.start?.date;
-  const end = event.end?.dateTime || event.end?.date;
-  
   let timeStr = "";
   if (event.start?.dateTime) {
     const startDate = new Date(event.start.dateTime);
@@ -131,7 +128,7 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
     prompt += "\n\n---\n\n## Google Calendar\n\n";
     
     if (calendarContext.connected) {
-      prompt += "**Status**: Connected\n\n";
+      prompt += "**Status**: Connected ✓\n\n";
       
       if (calendarContext.todayEvents && calendarContext.todayEvents.length > 0) {
         prompt += "**Today's Events**:\n";
@@ -149,11 +146,9 @@ function buildSystemPrompt(mode: string, timeCtx: ReturnType<typeof getTimeConte
           prompt += `- ${event.summary || "No title"} (${date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })})\n`;
         }
       }
-      
-      prompt += "\n**Calendar Actions**: You can create, update, or delete events by including a `calendarActions` array in your response.\n";
     } else {
       prompt += "**Status**: Not connected\n\n";
-      prompt += "If the user wants to connect their calendar, tell them to say \"connect my calendar\" and you'll provide a link.\n";
+      prompt += "If the user wants to connect their calendar, set connectCalendar: true in your response.\n";
     }
   }
   
@@ -256,6 +251,7 @@ app.post("/message", async (c) => {
     console.log("Saves:", response.saves.length);
     console.log("List mode:", response.listMode);
     console.log("Calendar actions:", response.calendarActions?.length || 0);
+    console.log("Connect calendar:", response.connectCalendar);
     
     if (response.saves.length > 0) {
       for (const save of response.saves) {
@@ -282,6 +278,7 @@ app.post("/message", async (c) => {
       mode,
       listMode: response.listMode,
       calendarActions: response.calendarActions || [],
+      connectCalendar: response.connectCalendar || false,
       timing: { duration }
     });
   } catch (err) {
