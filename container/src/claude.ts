@@ -34,6 +34,7 @@ export interface ChatResponse {
   saves: SaveInstruction[];
   listMode: boolean;
   calendarActions: CalendarAction[];
+  connectCalendar: boolean;
 }
 
 export async function chat(
@@ -58,13 +59,15 @@ You must respond with valid JSON in this exact format:
     }
   ],
   "listMode": false,
-  "calendarActions": []
+  "calendarActions": [],
+  "connectCalendar": false
 }
 
 - "message" is what the user sees
 - "saves" is an array of files to save (can be empty [])
 - "listMode" is true when you are in list mode, false otherwise
 - "calendarActions" is an array of calendar operations (can be empty [])
+- "connectCalendar" is true ONLY when the user wants to connect their calendar and it's not connected yet
 
 ### Calendar Actions
 
@@ -89,6 +92,14 @@ For all-day events, use "date" instead of "dateTime":
     "end": { "date": "2026-04-01" }
   }
 }
+
+### Connecting Calendar
+
+When the user wants to connect their calendar and it's NOT already connected:
+- Set "connectCalendar": true
+- In your message, say something like "Let me get you connected. A link should appear below."
+
+The frontend will handle showing the OAuth link.
 
 Always respond with valid JSON, nothing else.
 Do not wrap in markdown code fences.
@@ -129,7 +140,8 @@ Do not wrap in markdown code fences.
       message: parsed.message || rawText,
       saves: Array.isArray(parsed.saves) ? parsed.saves : [],
       listMode: parsed.listMode === true,
-      calendarActions: Array.isArray(parsed.calendarActions) ? parsed.calendarActions : []
+      calendarActions: Array.isArray(parsed.calendarActions) ? parsed.calendarActions : [],
+      connectCalendar: parsed.connectCalendar === true
     };
   } catch (err) {
     console.error("Failed to parse Claude response as JSON:", err);
@@ -139,7 +151,8 @@ Do not wrap in markdown code fences.
       message: rawText,
       saves: [],
       listMode: false,
-      calendarActions: []
+      calendarActions: [],
+      connectCalendar: false
     };
   }
 }
