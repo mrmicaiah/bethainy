@@ -163,6 +163,16 @@ export class GitHubClient {
     await this.putFile(`daily/plans/${date}.json`, JSON.stringify(plan, null, 2));
   }
   
+  // Lists
+  async getActiveList(): Promise<any> {
+    const file = await this.getFile('daily/lists.json');
+    return file ? JSON.parse(file.content) : null;
+  }
+  
+  async saveActiveList(list: any): Promise<void> {
+    await this.putFile('daily/lists.json', JSON.stringify(list, null, 2));
+  }
+  
   // Fitness
   async getDietPlan(): Promise<string> {
     const file = await this.getFile('fitness/diet-plan.md');
