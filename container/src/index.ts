@@ -62,34 +62,51 @@ function getTimeContext(): { date: string; time: string; timeOfDay: string; toda
   };
 }
 
-// Simple mode detection
+// Simple mode detection - expanded keywords
 function detectMode(message: string): string {
   const lower = message.toLowerCase();
   
-  if (/\b(gym|workout|train|exercise|meal|eat|lunch|dinner|breakfast|protein|calories|push day|pull day|leg day)\b/.test(lower)) {
+  // Fitness - expanded triggers
+  if (/\b(gym|workout|train|exercise|meal|eat|eating|lunch|dinner|breakfast|protein|calories|macros|diet|food|hungry|starving|push day|pull day|leg day|weigh|weight|body fat|muscle)\b/.test(lower)) {
     return "fitness";
   }
+  
+  // Maintenance
   if (/\b(tire|oil change|car|maintenance|repair|filter|brake|battery|mechanic|house|hvac|plumbing|appliance|fix)\b/.test(lower)) {
     return "maintenance";
   }
+  
+  // Shopping
   if (/\b(store|lowe's|lowes|walmart|target|costco|shopping|grocery|buy)\b/.test(lower)) {
     return "shopping";
   }
+  
+  // Money
   if (/\b(spent \$|budget|expense|cost|track spending)\b/.test(lower)) {
     return "money";
   }
+  
+  // Journal
   if (/\b(journal|journaling|reflect)\b/.test(lower)) {
     return "journal";
   }
+  
+  // Faith
   if (/\b(devotional|bible|prayer|quiet time|scripture|spiritual|faith)\b/.test(lower)) {
     return "faith";
   }
+  
+  // Learning
   if (/\b(course|learning|studying|lesson|module|certification|tutorial)\b/.test(lower)) {
     return "learning";
   }
+  
+  // Projects
   if (/\b(working on|project)\b/.test(lower)) {
     return "projects";
   }
+  
+  // Daily (catch-all for greetings and day planning)
   if (/\b(good morning|good afternoon|good evening|what's my day|today|tomorrow)\b/.test(lower)) {
     return "daily";
   }
@@ -191,6 +208,7 @@ app.post("/message", async (c) => {
     
     // Get cached user data (loads if not cached)
     const userData = await getUserData(userId, github, timeCtx.today, timeCtx.yesterday);
+    console.log("Diet plan loaded:", userData.dietPlan ? userData.dietPlan.length + " chars" : "NO");
     
     // Detect mode
     const mode = detectMode(message);
