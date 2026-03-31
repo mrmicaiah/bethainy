@@ -68,6 +68,15 @@ class Api {
       }),
     });
   }
+
+  // Calendar
+  async getCalendarConnectUrl() {
+    return this.request('/chat/calendar/connect');
+  }
+
+  async getCalendarStatus() {
+    return this.request('/chat/calendar/status');
+  }
 }
 
 export const api = new Api();
