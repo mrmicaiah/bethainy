@@ -74,29 +74,39 @@ app.post('/chat/message', async (c) => {
     const body = await c.req.json();
     const userId = c.get('userId');
     
+    console.log('Chat message from user:', userId);
+    
     // Check for Google Calendar connection and get today's events
-    let calendarContext = null;
+    let calendarContext: any = { connected: false };
+    
     try {
+      console.log('Checking calendar for user:', userId);
       const calendar = new GoogleCalendar(c.env as any, userId);
       const connected = await calendar.loadTokens();
+      console.log('Calendar connected:', connected);
       
       if (connected) {
         const today = new Date().toISOString().split('T')[0];
+        console.log('Fetching events for:', today);
+        
         const events = await calendar.getEventsForDay(today);
+        console.log('Today events:', events.length);
+        
         const upcoming = await calendar.getUpcomingEvents(5);
+        console.log('Upcoming events:', upcoming.length);
         
         calendarContext = {
           connected: true,
           todayEvents: events,
           upcomingEvents: upcoming
         };
-      } else {
-        calendarContext = { connected: false };
       }
-    } catch (err) {
-      console.error('Calendar fetch error:', err);
-      calendarContext = { connected: false, error: 'Failed to fetch calendar' };
+    } catch (err: any) {
+      console.error('Calendar fetch error:', err.message);
+      calendarContext = { connected: false, error: err.message };
     }
+    
+    console.log('Calendar context:', JSON.stringify(calendarContext));
     
     const container = getContainer(c.env.BETHAINY_CONTAINER);
     
@@ -118,13 +128,15 @@ app.post('/chat/message', async (c) => {
     const data = await response.json() as any;
     
     // If BethAiny wants to perform calendar actions, handle them here
-    if (data.calendarActions && Array.isArray(data.calendarActions)) {
+    if (data.calendarActions && Array.isArray(data.calendarActions) && data.calendarActions.length > 0) {
+      console.log('Processing calendar actions:', data.calendarActions.length);
       const calendar = new GoogleCalendar(c.env as any, userId);
       const connected = await calendar.loadTokens();
       
       if (connected) {
         for (const action of data.calendarActions) {
           try {
+            console.log('Calendar action:', action.type);
             if (action.type === 'create') {
               await calendar.createEvent(action.event);
             } else if (action.type === 'update') {
@@ -132,8 +144,8 @@ app.post('/chat/message', async (c) => {
             } else if (action.type === 'delete') {
               await calendar.deleteEvent(action.eventId);
             }
-          } catch (err) {
-            console.error('Calendar action failed:', action, err);
+          } catch (err: any) {
+            console.error('Calendar action failed:', action.type, err.message);
           }
         }
       }
@@ -141,7 +153,7 @@ app.post('/chat/message', async (c) => {
     
     return c.json(data);
   } catch (err: any) {
-    console.error('Chat error:', err);
+    console.error('Chat error:', err.message);
     return c.json({ error: err.message }, 500);
   }
 });
@@ -149,9 +161,11 @@ app.post('/chat/message', async (c) => {
 // Calendar connection status (protected)
 app.get('/chat/calendar/status', async (c) => {
   const userId = c.get('userId');
+  console.log('Calendar status check for:', userId);
   
   const calendar = new GoogleCalendar(c.env as any, userId);
   const connected = await calendar.loadTokens();
+  console.log('Status result:', connected);
   
   return c.json({ connected });
 });
@@ -159,6 +173,7 @@ app.get('/chat/calendar/status', async (c) => {
 // Generate OAuth URL (protected)
 app.get('/chat/calendar/connect', async (c) => {
   const userId = c.get('userId');
+  console.log('Calendar connect request for:', userId);
   
   const params = new URLSearchParams({
     client_id: c.env.GOOGLE_CLIENT_ID,
@@ -173,6 +188,21 @@ app.get('/chat/calendar/connect', async (c) => {
   const url = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
   
   return c.json({ url });
+});
+
+// Debug endpoint to check tokens directly
+app.get('/chat/calendar/debug', async (c) => {
+  const userId = c.get('userId');
+  
+  const result = await c.env.DB.prepare(
+    'SELECT user_id, expires_at FROM google_tokens WHERE user_id = ?'
+  ).bind(userId).first();
+  
+  return c.json({ 
+    userId,
+    tokenExists: !!result,
+    tokenData: result 
+  });
 });
 
 export default app;
